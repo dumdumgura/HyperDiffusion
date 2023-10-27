@@ -64,11 +64,13 @@ def main(cfg: DictConfig):
     root_path = os.path.join(cfg.logging_root, cfg.exp_name)
     mesh_jitter = cfg.mesh_jitter
     multip_cfg = cfg.multi_process
+
     files = [
         file
         for file in os.listdir(cfg.dataset_folder)
         if file not in ["train_split.lst", "test_split.lst", "val_split.lst"]
     ]
+
     if multip_cfg.enabled:
         if multip_cfg.ignore_first:
             files = files[1:]  # Ignoring the first one
@@ -99,7 +101,7 @@ def main(cfg: DictConfig):
 
             if not (file in train_object_names):
                 print(f"File {file} not in train_split")
-                continue
+                #continue
 
             filename = file.split(".")[0]
             filename = f"{filename}_jitter_{j}"
@@ -121,6 +123,7 @@ def main(cfg: DictConfig):
             elif cfg.strategy == "diagnose":
                 lengths.append(len(sdf_dataset.coords))
                 names.append(file)
+
                 continue
 
             # Define the model.
@@ -262,6 +265,8 @@ def main(cfg: DictConfig):
                         if cfg.output_type == "occ" and cfg.out_act == "sigmoid"
                         else 0,
                     )
+    #print(lengths)
+    #print(names)
 
 
 if __name__ == "__main__":

@@ -5,17 +5,20 @@
 import os
 import sys
 from pathlib import Path
-
-from mlp_models import MLP3D
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
+from mlp_models import MLP3D
+
+
 import torch
 
 from siren import sdf_meshing, utils
+
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
 
 class SDFDecoder(torch.nn.Module):
@@ -37,7 +40,7 @@ class SDFDecoder(torch.nn.Module):
         return self.model(model_in)["model_out"]
 
 
-def main():
+def test():
     import configargparse
 
     p = configargparse.ArgumentParser()
@@ -68,25 +71,35 @@ def main():
     p.add_argument(
         "--model_type",
         type=str,
-        default="sine",
+        default="mlp_3d",
         help='Options are "sine" (all sine activations) and "mixed" (first layer sine, other layers tanh)',
     )
     p.add_argument(
         "--mode", type=str, default="mlp", help='Options are "mlp" or "nerf"'
     )
-    p.add_argument("--resolution", type=int, default=1600)
+    p.add_argument("--resolution", type=int, default=100)
 
+    p.add_argument("--cfg", default=None)
     opt = p.parse_args()
 
-    sdf_decoder = SDFDecoder(opt.model_type, opt.checkpoint_path, opt.mode)
+    cfg = "configs/overfitting_configs/overfit_plane.yaml"
+
+    data = OmegaConf.load(cfg)
+    sdf_decoder = SDFDecoder(opt.model_type, opt.checkpoint_path, opt.mode, data)
+
     name = Path(opt.checkpoint_path).stem
     root_path = os.path.join(opt.logging_root, opt.experiment_name)
     utils.cond_mkdir(root_path)
 
     sdf_meshing.create_mesh(
-        sdf_decoder, os.path.join(root_path, name), N=opt.resolution
+        sdf_decoder,
+        os.path.join(root_path,name),
+        N=256,
+        level=0
+        if data.output_type == "occ" and data.out_act == "sigmoid"
+        else 0,
     )
 
 
 if __name__ == "__main__":
-    main()
+    test()
