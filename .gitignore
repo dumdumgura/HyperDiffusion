@@ -141,7 +141,3 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-
-# Data
-./data/
-./mlp_weights/
