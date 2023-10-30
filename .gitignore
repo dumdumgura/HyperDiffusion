@@ -11,6 +11,8 @@ meshes
 lightning_checkpoints
 *.ckpt
 .github/workflows
+*.pth
+*.npy
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
