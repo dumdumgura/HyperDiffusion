@@ -11,7 +11,7 @@ model_type: mlp_3d
 bayesian: False
 logging_root: './logs'
 shape_modify: 'no'
-exp_name: "test"
+exp_name: "insert_name_here"
 steps_til_summary: 100
 epochs_til_ckpt: 1
 hidden_features: 128
@@ -38,7 +38,6 @@ strategy: first_weights
 clip_grad: False
 out_act: sigmoid
 mlp_config:
-  output_type: occ
   out_size: 1
   use_leaky_relu: False
   hidden_neurons: [128, 128, 128]

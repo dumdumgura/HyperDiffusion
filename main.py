@@ -1,5 +1,5 @@
 import os
-#changed version
+
 from dataset import VoxelDataset, WeightDataset
 from hd_utils import Config, get_mlp
 from hyperdiffusion import HyperDiffusion

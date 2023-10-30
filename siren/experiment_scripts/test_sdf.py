@@ -1,46 +1,48 @@
 """Test script for experiments in paper Sec. 4.2, Supplement Sec. 3, reconstruction from laplacian.
 """
-#aaa
+
 # Enable import from parent package
 import os
 import sys
 from pathlib import Path
+
+from mlp_models import MLP3D
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
-from mlp_models import MLP3D
-
-
 import torch
 
 from siren import sdf_meshing, utils
-
-import hydra
-from omegaconf import DictConfig, OmegaConf
 
 
 class SDFDecoder(torch.nn.Module):
     def __init__(self, model_type, checkpoint_path, mode, cfg):
         super().__init__()
-        # Define the model.
-        if model_type == "mlp_3d":
-            if "mlp_config" in cfg:
-                self.model = MLP3D(**cfg.mlp_config)
-            else:
-                self.model = MLP3D(**cfg)
+        if mode != "init_from_model":
+            
+            # Define the model.
+            if model_type == "mlp_3d":
+                if "mlp_config" in cfg:
+                    self.model = MLP3D(**cfg.mlp_config)
+                else:
+                    self.model = MLP3D(**cfg)
 
-        if checkpoint_path is not None:
-            self.model.load_state_dict(torch.load(checkpoint_path))
+            if checkpoint_path is not None:
+                self.model.load_state_dict(torch.load(checkpoint_path))
+            
+        else:
+            self.model = model_type
         self.model.cuda()
-
+        
     def forward(self, coords):
         model_in = {"coords": coords}
         return self.model(model_in)["model_out"]
 
 
-def test():
+def main():
     import configargparse
 
     p = configargparse.ArgumentParser()
@@ -71,35 +73,25 @@ def test():
     p.add_argument(
         "--model_type",
         type=str,
-        default="mlp_3d",
+        default="sine",
         help='Options are "sine" (all sine activations) and "mixed" (first layer sine, other layers tanh)',
     )
     p.add_argument(
         "--mode", type=str, default="mlp", help='Options are "mlp" or "nerf"'
     )
-    p.add_argument("--resolution", type=int, default=100)
+    p.add_argument("--resolution", type=int, default=1600)
 
-    p.add_argument("--cfg", default=None)
     opt = p.parse_args()
 
-    cfg = "configs/overfitting_configs/overfit_plane.yaml"
-
-    data = OmegaConf.load(cfg)
-    sdf_decoder = SDFDecoder(opt.model_type, opt.checkpoint_path, opt.mode, data)
-
+    sdf_decoder = SDFDecoder(opt.model_type, opt.checkpoint_path, opt.mode)
     name = Path(opt.checkpoint_path).stem
     root_path = os.path.join(opt.logging_root, opt.experiment_name)
     utils.cond_mkdir(root_path)
 
     sdf_meshing.create_mesh(
-        sdf_decoder,
-        os.path.join(root_path,name),
-        N=256,
-        level=0
-        if data.output_type == "occ" and data.out_act == "sigmoid"
-        else 0,
+        sdf_decoder, os.path.join(root_path, name), N=opt.resolution
     )
 
 
 if __name__ == "__main__":
-    test()
+    main()

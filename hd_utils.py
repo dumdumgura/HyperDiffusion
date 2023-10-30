@@ -147,3 +147,7 @@ def look_at(eye, target, up):
     camera_pose[:-1, 2] = forward
     camera_pose[:-1, 3] = eye
     return camera_pose
+
+def lin_interpolate(w_1, w_2, lerp_weight):
+    lerp = torch.lerp(w_1, w_2, lerp_weight)
+    return lerp
