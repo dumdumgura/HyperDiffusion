@@ -82,7 +82,10 @@ def main(cfg: DictConfig):
         os.path.join(dataset_path, "train_split.lst"), dtype="str"
     )
     if not cfg.mlp_config.params.move:
-        train_object_names = set([str.split(".")[0] for str in train_object_names])
+        # COMMENTED FOR DEBUG PURPOSSES
+        #train_object_names = set([str.split(".")[0] for str in train_object_names])
+        # SET TRAIN OBJECT NAMES MANUALLY FOR DEBUG PURPOSSES FOR SINGLE OBJECT
+        train_object_names = train_object_names.item().split(".")[0]
     # Check if dataset folder already has train,test,val split; create otherwise.
     if method == "hyper_3d":
         mlps_folder_all = mlps_folder_train
@@ -155,6 +158,7 @@ def main(cfg: DictConfig):
             mlp_kwargs,
             cfg,
             train_object_names,
+            is_ginr= True if Config.get("mlps_type") == "ginr" else False
         )
         train_dl = DataLoader(
             train_dt,
@@ -197,7 +201,7 @@ def main(cfg: DictConfig):
     )
     test_dl = DataLoader(
         torch.utils.data.Subset(train_dt, [0]), batch_size=1, shuffle=False
-    )
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          )
 
     print(
         "Train dataset length: {} Val dataset length: {} Test dataset length".format(

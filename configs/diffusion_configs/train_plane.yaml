@@ -6,7 +6,10 @@ filter_bad: True
 filter_bad_path: ./data/plane_problematic_shapes.txt
 disable_wandb: False
 dataset_dir: ./data
-dataset: 02691156
+#small
+#dataset: 02691156_small_obj_manifold
+#single
+dataset: 02691156_single_obj_manifold
 tensorboard_log_dir: .
 augment: False
 augment_amount: 0
@@ -18,7 +21,12 @@ scheduler: True
 scheduler_step: 200
 best_model_save_path:
 mode: train
-mlps_folder_train: ./mlp_weights/3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
+# for small set
+#mlps_folder_train: ./mlp_weights/Plane/small_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
+# for single item
+mlps_folder_train: ./mlp_weights/Plane/ginr/weights/single
+mlps_type: "ginr"
+
 model_resume_path:
 sampling: ddim
 val_fid_calculation_period: 15
@@ -27,7 +35,7 @@ batch_size: 32
 accumulate_grad_batches: 1
 val:
   num_points: 2048
-  num_samples: 60
+  num_samples: 5
 mlp_config:
   params:
     model_type: mlp_3d
@@ -48,7 +56,7 @@ diff_config:
     loss_type: MSE
 transformer_config:
   params:
-    n_embd: 2880
+    n_embd: 1440 #assert n_embd % n_head == 0
     n_layer: 12
     n_head: 16
     split_policy: layer_by_layer

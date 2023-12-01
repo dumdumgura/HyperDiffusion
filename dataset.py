@@ -4,6 +4,7 @@ from os.path import join
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import trimesh
 from torch.utils.data import Dataset
 from trimesh.voxel import creation as vox_creation
@@ -146,7 +147,7 @@ class VoxelDataset(Dataset):
 
 class WeightDataset(Dataset):
     def __init__(
-        self, mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names=None
+        self, mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names=None, is_ginr=False
     ):
         self.mlps_folder = mlps_folder
         self.condition = cfg.transformer_config.params.condition
@@ -162,11 +163,20 @@ class WeightDataset(Dataset):
                 # Excluding black listed shapes
                 if cfg.filter_bad and file.split("_")[1] in blacklist:
                     continue
+                # Exclude all files except weights
+                if file.split(".")[-1] not in ["pt", "pth"]:
+                    continue
                 # Check if file is in corresponding split (train, test, val)
                 # In fact, only train split is important here because we don't use test or val MLP weights
-                if ("_" in file and (file.split("_")[1] in object_names or (
-                        file.split("_")[1] + "_" + file.split("_")[2]) in object_names)) or (file in object_names):
-                    self.mlp_files.append(file)
+                if "ginr" in mlps_folder:
+                    if (file.split(".")[0] in object_names):
+                        self.mlp_files.append(file)
+                else:
+                    if ("_" in file and (file.split("_")[1] in object_names or (
+                        file.split("_")[1] + "_" + file.split("_")[2]) in object_names)) or (
+                        file in object_names):
+                        self.mlp_files.append(file)
+                    
         self.transform = None
         self.logger = wandb_logger
         self.model_dims = model_dims
@@ -180,13 +190,43 @@ class WeightDataset(Dataset):
             ).float()
         else:
             self.first_weights = torch.tensor([0])
+            
+        self.is_ginr = is_ginr
 
+    # ginr weight case should as supply state dict here
     def get_weights(self, state_dict):
         weights = []
         shapes = []
-        for weight in state_dict:
-            shapes.append(np.prod(state_dict[weight].shape))
-            weights.append(state_dict[weight].flatten().cpu())
+        
+        #if standard mlp weight
+        # i.e. ziya's weights
+        if not self.is_ginr:
+            for weight in state_dict:
+                shapes.append(np.prod(state_dict[weight].shape))
+                weights.append(state_dict[weight].flatten().cpu())
+        #if ginr weights
+        if self.is_ginr:
+            no_of_layers = len(self.mlp_kwargs["hidden_neurons"]) + 1
+            
+            for i in range(no_of_layers):
+                if i in self.mlp_kwargs["modulated_layer_idxs"]:
+                    shared_factor = state_dict['factors.shared_factors.linear_wb' + str(i)]
+                    modulation_factor = state_dict["factors.init_modulation_factors.linear_wb" + str(i)]
+                    modulation_param = torch.matmul(modulation_factor, shared_factor)
+                    base_param_w = 1.
+                else:
+                    modulation_param = 1.
+                    base_param_w = state_dict['hyponet.params_dict.linear_wb' + str(i)][:-1]
+                    
+                param_w = base_param_w * modulation_param
+                base_param_b = state_dict['hyponet.params_dict.linear_wb' + str(i)][-1].unsqueeze(dim=0)
+                
+                if self.mlp_kwargs.normalize_weight:
+                    param_w = F.normalize(param_w, dim=0)
+                    modulated_param = torch.cat([param_w, base_param_b], dim=0)
+                    
+                weights.append(modulated_param.flatten().cpu())
+
         weights = torch.hstack(weights)
         prev_weights = weights.clone()
 
@@ -224,6 +264,9 @@ class WeightDataset(Dataset):
             state_dict = torch.load(path1 if os.path.exists(path1) else path2)
         else:
             state_dict = torch.load(dir, map_location=torch.device("cpu"))
+            
+        if self.is_ginr:
+            state_dict = state_dict["state_dict"]
 
         weights, weights_prev = self.get_weights(state_dict)
 

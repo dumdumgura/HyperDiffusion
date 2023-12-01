@@ -112,6 +112,7 @@ def _pairwise_EMD_CD_(sample_pcs, ref_pcs, batch_size, verbose=True):
             )
             sample_batch_exp = sample_batch_exp.contiguous()
 
+            # FOR DEBUG: GPU MEM. NOT ENOUGH
             dl, dr = distChamfer(sample_batch_exp, ref_batch)
             cd_lst.append((dl.mean(dim=1) + dr.mean(dim=1)).view(1, -1))
 

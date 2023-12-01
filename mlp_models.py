@@ -106,3 +106,25 @@ class MLP3D(nn.Module):
         x = dist.Bernoulli(logits=x).logits
 
         return {"model_in": coords_org, "model_out": x}
+    
+    
+class MLP3D_GINR(MLP3D):
+    def __init__(self, out_size, hidden_neurons, modulated_layer_idxs, output_bias, use_leaky_relu=False, use_bias=True, multires=10, output_type=None, move=False, **kwargs):
+        super().__init__(out_size, hidden_neurons, use_leaky_relu, use_bias, multires, output_type, move, **kwargs)
+        
+        self.modulated_layer_idxs = modulated_layer_idxs
+        self.output_bias = output_bias
+
+    def forward(self, model_input):
+        coords_org = model_input["coords"].clone().detach().requires_grad_(True)
+        x = coords_org
+        x = self.embedder.embed(x)
+        for i, layer in enumerate(self.layers[:-1]):
+            x = layer(x)
+            x = F.relu(x)
+        x = self.layers[-1](x)
+        
+        x += self.output_bias
+
+        return {"model_in": coords_org, "model_out": x}
+    

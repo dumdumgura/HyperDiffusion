@@ -3,7 +3,7 @@ output_type: "occ" # or sdf or occ
 in_out: True
 augment_on_the_fly: False
 mesh_jitter: False
-dataset_folder: "./data/02691156"
+dataset_folder: "./data/02691156_small_obj_manifold"
 wandb_dir: .
 batch_size: 2048
 lr: 1e-2
@@ -11,7 +11,7 @@ model_type: mlp_3d
 bayesian: False
 logging_root: './logs'
 shape_modify: 'no'
-exp_name: "insert_name_here"
+exp_name: "save_pc"
 steps_til_summary: 100
 epochs_til_ckpt: 1
 hidden_features: 128
