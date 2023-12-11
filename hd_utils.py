@@ -8,7 +8,13 @@ import trimesh
 from mlp_models import MLP, MLP3D, MLP3D_GINR
 from Pointnet_Pointnet2_pytorch.log.classification.pointnet2_ssg_wo_normals import \
     pointnet2_cls_ssg
+from siren.experiment_scripts.test_sdf import SDFDecoder
+from siren import sdf_meshing
 from torchmetrics_fid import FrechetInceptionDistance
+
+import os
+from omegaconf import DictConfig
+from typing import List
 
 # Using edited 2D-FID code of torch_metrics
 fid = FrechetInceptionDistance(reset_real_features=True)
@@ -157,3 +163,68 @@ def look_at(eye, target, up):
 def lin_interpolate(w_1, w_2, lerp_weight):
     lerp = torch.lerp(w_1, w_2, lerp_weight)
     return lerp
+
+def reconstruct_from_mlp(mlp, cfg: DictConfig, additional_experiment_specifiers: List[str]):
+    """
+    Reconstructs a mesh from a given MLP (Multi-Layer Perceptron) model.
+
+    This function takes an MLP model and configuration parameters to generate
+    a mesh representation. It saves the generated mesh to a specified folder 
+    with a filename based on the experiment's name and additional specifiers.
+
+    Parameters:
+    mlp: The Multi-Layer Perceptron model used for mesh reconstruction.
+    cfg (DictConfig): A configuration object containing parameters like the 
+                      save folder and experiment name.
+    additional_experiment_specifiers (List[str]): A list of strings to be 
+                                                  appended to the filename for 
+                                                  additional specification.
+
+    Returns:
+    tuple: A tuple containing two elements:
+           - vertices (ndarray): The vertices of the reconstructed mesh.
+           - faces (ndarray): The faces of the reconstructed mesh.
+
+    Raises:
+    - Various exceptions related to file handling and mesh generation 
+      depending on the internal implementation of the `sdf_meshing.create_mesh` 
+      and `SDFDecoder` classes.
+
+    Note:
+    - The mesh is saved to the path constructed by joining `cfg.get("save_folder")` 
+      and `cfg.get("experiment_name")` with the elements from 
+      `additional_experiment_specifiers`.
+    - The resolution and level of the mesh are determined based on the 
+      configuration of the MLP model specified in `cfg`.
+
+    Example:
+    >>> vertices, faces = reconstruct_from_mlp(mlp_model, config, ["_spec1", "_spec2"])
+    Mesh saved to 'path_to_save_folder/experiment_name_spec1_spec2'
+    """
+    # generate mesh from MLP
+    sdf_decoder = SDFDecoder(
+            mlp,
+            None,
+            "init_from_model",
+            cfg,
+        )
+    
+    folder_to_save = cfg.get("save_folder")
+    filename_to_save = cfg.get("experiment_name")
+    
+    for element in additional_experiment_specifiers:
+        filename_to_save += "_" + element
+        
+    vertices, faces, _ = sdf_meshing.create_mesh(
+                            sdf_decoder,
+                            os.path.join(
+                                folder_to_save,
+                                filename_to_save
+                            ),
+                            N=256,
+                            level=0
+                            if Config.config["mlp_config"]["params"]["output_type"] == "occ" and Config.config["mlp_config"]["params"]["out_act"] == "sigmoid"
+                            else 0
+                        )
+    
+    return vertices, faces

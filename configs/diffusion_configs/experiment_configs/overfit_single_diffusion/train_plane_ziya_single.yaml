@@ -24,9 +24,6 @@ mode: train
 # for small set
 #mlps_folder_train: ./mlp_weights/Plane/small_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
 # for single item
-# GINR
-#mlps_folder_train: ./mlp_weights/Plane/ginr/weights/single
-# HyperDiff.
 mlps_folder_train: ./mlp_weights/Plane/single_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
 mlps_type: "mlp3d"
 

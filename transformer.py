@@ -3,15 +3,22 @@ This file contains the G.pt model and its building blocks (minGPT without maskin
 """
 import math
 from copy import deepcopy
+from typing import Optional
 
 import numpy as np
+from pytorch_lightning.utilities.types import STEP_OUTPUT
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
 from embedder import Embedder
 from mlp_models import MLP
+import pytorch_lightning as pl
 
+from hd_utils import (Config, get_mlp, lin_interpolate, generate_mlp_from_weights, reconstruct_from_mlp)
+from siren.experiment_scripts.test_sdf import SDFDecoder
+from siren import sdf_meshing
+import os
 
 class SelfAttention(nn.Module):
     """
@@ -389,7 +396,7 @@ class FrequencyEmbedder(nn.Module):
         return embedded
 
 
-class Transformer(nn.Module):
+class Transformer(pl.LightningModule):
 
     """
     The G.pt model.
@@ -434,7 +441,20 @@ class Transformer(nn.Module):
         if self.use_global_residual:
             for out_proj in self.decoder.output_parameter_projections:
                 out_proj[-1].weight.data.zero_()
+                
+        self.mlp_kwargs = None
+        self.cfg = None
+    
+    def set_mlp_kwargs(self, mlp_kwargs):
+        self.mlp_kwargs = mlp_kwargs
+        
+        return
 
+    def set_cfg(self, cfg):
+        self.cfg = cfg
+        
+        return
+    
     @staticmethod
     def get_scalar_token_size(num_frequencies):
         """
@@ -479,7 +499,15 @@ class Transformer(nn.Module):
         Sets up the AdamW optimizer for G.pt (no weight decay on the positional embeddings or layer norm biases).
         """
         return GPT.configure_optimizers(self, lr, wd, betas)
-
+    
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.cfg.get("lr"))
+        if self.cfg.scheduler:
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer, step_size=self.cfg.scheduler_step, gamma=0.9
+            )
+            return [optimizer], [scheduler]
+    
     @torch.no_grad()
     def gradient_norm(self):
         """
@@ -523,6 +551,27 @@ class Transformer(nn.Module):
             output = output + x_prev
         return output
 
+    def training_step(self, batch, batch_idx):
+        # settin timestep parameter zero to test overfit
+        t = torch.tensor([[0]])
+        x = batch[0]
+        output = self.forward(x,t)
+        target = x
+        loss = F.mse_loss(output, target)
+        self.log("train_loss", loss.item())
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        print("in validation step")
+        t = torch.tensor([[0]])
+        x = batch[0]
+        output = self.forward(x,t)
+        
+        overfit_mlp = generate_mlp_from_weights(output.flatten(), self.mlp_kwargs)
+        
+        vertices, faces = reconstruct_from_mlp(mlp=overfit_mlp, cfg=self.cfg, additional_experiment_specifiers=["epoch", str(self.current_epoch)])
+        
+        return vertices, faces
 
 if __name__ == "__main__":
     mlp = MLP(

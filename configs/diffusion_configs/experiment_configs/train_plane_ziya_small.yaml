@@ -7,9 +7,9 @@ filter_bad_path: ./data/plane_problematic_shapes.txt
 disable_wandb: False
 dataset_dir: ./data
 #small
-#dataset: 02691156_small_obj_manifold
+dataset: 02691156_small_obj_manifold
 #single
-dataset: 02691156_single_obj_manifold
+#dataset: 02691156_single_obj_manifold
 tensorboard_log_dir: .
 augment: False
 augment_amount: 0
@@ -22,12 +22,9 @@ scheduler_step: 200
 best_model_save_path:
 mode: train
 # for small set
-#mlps_folder_train: ./mlp_weights/Plane/small_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
+mlps_folder_train: ./mlp_weights/Plane/small_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
 # for single item
-# GINR
-#mlps_folder_train: ./mlp_weights/Plane/ginr/weights/single
-# HyperDiff.
-mlps_folder_train: ./mlp_weights/Plane/single_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
+#mlps_folder_train: ./mlp_weights/Plane/single_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
 mlps_type: "mlp3d"
 
 model_resume_path:

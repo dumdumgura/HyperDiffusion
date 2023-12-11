@@ -7,9 +7,9 @@ filter_bad_path: ./data/plane_problematic_shapes.txt
 disable_wandb: False
 dataset_dir: ./data
 #small
-#dataset: 02691156_small_obj_manifold
+dataset: 02691156_small_obj_manifold
 #single
-dataset: 02691156_single_obj_manifold
+#dataset: 02691156_single_obj_manifold
 tensorboard_log_dir: .
 augment: False
 augment_amount: 0
@@ -22,13 +22,10 @@ scheduler_step: 200
 best_model_save_path:
 mode: train
 # for small set
-#mlps_folder_train: ./mlp_weights/Plane/small_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
+mlps_folder_train: ./mlp_weights/Plane/ginr/weights
 # for single item
-# GINR
 #mlps_folder_train: ./mlp_weights/Plane/ginr/weights/single
-# HyperDiff.
-mlps_folder_train: ./mlp_weights/Plane/single_3d_128_plane_multires_4_manifoldplus_slower_no_clipgrad
-mlps_type: "mlp3d"
+mlps_type: "ginr"
 
 model_resume_path:
 sampling: ddim
@@ -41,10 +38,12 @@ val:
   num_samples: 5
 mlp_config:
   params:
-    model_type: mlp_3d
+    model_type: mlp_3d_ginr
     out_size: 1
     hidden_neurons:
-      - 128
+      - 256
+      - 256
+      - 256
       - 128
       - 128
     output_type: occ
@@ -52,6 +51,9 @@ mlp_config:
     multires: 4
     use_leaky_relu: False
     move: False
+    modulated_layer_idxs: [1,3]
+    normalize_weight: True
+    output_bias: 0.5
 diff_config:
   params:
     model_mean_type: START_X
