@@ -1,7 +1,7 @@
 from hd_utils import (Config, get_mlp, lin_interpolate, generate_mlp_from_weights, reconstruct_from_mlp)
 import hydra
 from omegaconf import DictConfig
-from dataset import WeightDataset
+from dataset import WeightDataset, ModulationDataset
 from pytorch_lightning.loggers import WandbLogger
 import numpy as np
 from transformer import Transformer
@@ -18,15 +18,18 @@ from typing import List
 
 @hydra.main(
     version_base=None,
-    config_path="configs/diffusion_configs/experiment_configs/overfit_single_transformer",
-    config_name="train_plane_ginr_single",
+    #config_path="configs/diffusion_configs/experiment_configs/overfit_single_modulation_transformer",
+    #config_name="train_plane_ziya_single",
+    config_path="configs/overfitting_configs/",
+    config_name="overfit_plane_ginr_simplified",
 )
 
 def main(cfg: DictConfig):
     #lin_interpolate_weight_space_experiment(cfg)
-    #reconstruct_from_ginr_experiment(cfg)
+    reconstruct_from_ginr_experiment(cfg)
     #reconstruct_from_hyperdiff_weights(cfg)
-    overfit_with_transformer(cfg)
+    #overfit_with_transformer(cfg)
+    #overfit_modulation_with_transformer(cfg)
 
 def lin_interpolate_weight_space_experiment(cfg: DictConfig):
     Config.config = config = cfg
@@ -119,9 +122,9 @@ def reconstruct_from_ginr_experiment(cfg: DictConfig):
     )
     if not cfg.mlp_config.params.move:
         # COMMENTED FOR DEBUG PURPOSSES
-        #train_object_names = set([str.split(".")[0] for str in train_object_names])
+        train_object_names = set([str.split(".")[0] for str in train_object_names])
         # SET TRAIN OBJECT NAMES MANUALLY FOR DEBUG PURPOSSES FOR SINGLE OBJECT
-        train_object_names = train_object_names.item().split(".")[0]
+        #train_object_names = train_object_names.item().split(".")[0]
     
     # set train dataset
     train_dt = WeightDataset(
@@ -131,7 +134,7 @@ def reconstruct_from_ginr_experiment(cfg: DictConfig):
         mlp_kwargs,
         cfg,
         train_object_names,
-        is_ginr= True if Config.get("mlps_type") == "ginr" else False
+        is_ginr = True if Config.get("mlps_type") == "ginr" else False
     )
     
     print(
@@ -336,6 +339,55 @@ def overfit_with_transformer(cfg: DictConfig):
     if Config.get("mode") == "train":
         # If model_resume_path is provided (i.e., not None), the training will continue from that checkpoint
         trainer.fit(transformer, train_dl, train_dl)
+        
+def overfit_modulation_with_transformer(cfg: DictConfig):
+    Config.config = config = cfg
+    method = Config.get("method")
+    print(method)
+    
+    # WanDB init
+    wandb.init(
+        project="hyperdiffusion_overfit_transformer",
+        dir=config["tensorboard_log_dir"],
+        settings=wandb.Settings(_disable_stats=True, _disable_meta=True),
+        tags=[Config.get("mode")],
+        mode="disabled" if Config.get("disable_wandb") else "online",
+        config=dict(config),
+    )
+
+    wandb_logger = WandbLogger()
+    wandb_logger.log_text("config", ["config"], [[str(config)]])
+    print("wandb", wandb.run.name, wandb.run.id)
+    
+    # Config set for weight reeading
+    mlps_folder_train = Config.get("mlps_folder_train")
+    
+    # read mlp kwargs
+    mlp_kwargs = Config.config["mlp_config"]["params"]
+    
+    #set train object names
+    dataset_path = os.path.join(Config.config["dataset_dir"], Config.config["dataset"])
+    train_object_names = np.genfromtxt(
+        os.path.join(dataset_path, "train_split.lst"), dtype="str"
+    )
+    if not cfg.mlp_config.params.move:
+        # COMMENTED FOR DEBUG PURPOSSES
+        #train_object_names = set([str.split(".")[0] for str in train_object_names])
+        # SET TRAIN OBJECT NAMES MANUALLY FOR DEBUG PURPOSSES FOR SINGLE OBJECT
+        train_object_names = train_object_names.item().split(".")[0]
+        
+    # set train dataset
+    train_dt = ModulationDataset(
+        mlps_folder_train,
+        None, # wandb_logger,
+        None, # model_dims
+        mlp_kwargs,
+        cfg,
+        train_object_names,
+        is_ginr= True if Config.get("mlps_type") == "ginr" else False
+    )
+    
+    
 
 if __name__ == "__main__":
     main()

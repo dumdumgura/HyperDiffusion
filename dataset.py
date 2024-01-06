@@ -12,7 +12,7 @@ from trimesh.voxel import creation as vox_creation
 from augment import random_permute_flat, random_permute_mlp, sorted_permute_mlp
 from hd_utils import generate_mlp_from_weights, get_mlp
 from siren.dataio import anime_read
-
+import re
 
 class VoxelDataset(Dataset):
     def __init__(
@@ -150,7 +150,7 @@ class WeightDataset(Dataset):
         self, mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names=None, is_ginr=False
     ):
         self.mlps_folder = mlps_folder
-        self.condition = cfg.transformer_config.params.condition
+        #self.condition = cfg.transformer_config.params.condition
         files_list = list(os.listdir(mlps_folder))
         blacklist = {}
         if cfg.filter_bad:
@@ -165,17 +165,38 @@ class WeightDataset(Dataset):
                     continue
                 # Exclude all files except weights
                 if file.split(".")[-1] not in ["pt", "pth"]:
-                    continue
-                # Check if file is in corresponding split (train, test, val)
-                # In fact, only train split is important here because we don't use test or val MLP weights
-                if "ginr" in mlps_folder:
-                    if (file.split(".")[0] in object_names):
-                        self.mlp_files.append(file)
+                    if "ginr" in mlps_folder:
+                        pattern = r'epoch(\d+)_model\.pt'
+                        max_epoch = -1
+                        latest_checkpoint = None
+                        # sub-directory structure coming from overfitting of GINR
+                        for ckpt in list(os.listdir(os.path.join(mlps_folder, file))):
+                            # Check if the file name matches the pattern
+                            match = re.match(pattern, ckpt)
+                            if match:
+                                # Extract epoch number and convert to integer
+                                epoch_num = int(match.group(1))
+
+                                # Update max epoch and corresponding file
+                                if epoch_num > max_epoch:
+                                    max_epoch = epoch_num
+                                    latest_checkpoint = os.path.join(file, ckpt)
+                        
+                        if latest_checkpoint:
+                            self.mlp_files.append(latest_checkpoint)
+                    else:
+                        continue
                 else:
-                    if ("_" in file and (file.split("_")[1] in object_names or (
-                        file.split("_")[1] + "_" + file.split("_")[2]) in object_names)) or (
-                        file in object_names):
-                        self.mlp_files.append(file)
+                    # Check if file is in corresponding split (train, test, val)
+                    # In fact, only train split is important here because we don't use test or val MLP weights
+                    if "ginr" in mlps_folder:
+                        if (file.split(".")[0] in object_names):
+                            self.mlp_files.append(file)
+                    else:                    
+                        if ("_" in file and (file.split("_")[1] in object_names or (
+                            file.split("_")[1] + "_" + file.split("_")[2]) in object_names)) or (
+                            file in object_names):
+                            self.mlp_files.append(file)
                     
         self.transform = None
         self.logger = wandb_logger
@@ -206,6 +227,7 @@ class WeightDataset(Dataset):
                 weights.append(state_dict[weight].flatten().cpu())
         #if ginr weights
         if self.is_ginr:
+            '''
             no_of_layers = len(self.mlp_kwargs["hidden_neurons"]) + 1
             
             for i in range(no_of_layers):
@@ -226,6 +248,11 @@ class WeightDataset(Dataset):
                     modulated_param = torch.cat([param_w, base_param_b], dim=0)
                     
                 weights.append(modulated_param.flatten().cpu())
+            '''
+            for weight in state_dict:
+                if "factors" not in weight:
+                    shapes.append(np.prod(state_dict[weight].shape))
+                    weights.append(state_dict[weight].flatten().cpu())
 
         weights = torch.hstack(weights)
         prev_weights = weights.clone()
@@ -284,3 +311,46 @@ class WeightDataset(Dataset):
 
     def __len__(self):
         return len(self.mlp_files)
+
+class ModulationDataset(WeightDataset):
+    def __init__(self, mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names=None, is_ginr=False):
+        super().__init__(mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names, is_ginr)
+        
+    def get_weights(self, state_dict):
+        weights = []
+        shapes = []
+        
+        no_of_layers = len(self.mlp_kwargs["hidden_neurons"]) + 1
+        
+        for i in range(no_of_layers):
+                if i in self.mlp_kwargs["modulated_layer_idxs"]:
+                    modulation_factor = state_dict["factors.init_modulation_factors.linear_wb" + str(i)]
+                    weights.append(modulation_factor.flatten().cpu())
+        
+        weights = torch.hstack(weights)
+        prev_weights = weights.clone()
+        
+                # Some augmentation methods are available althougwe don't use them in the main paper
+        if self.cfg.augment == "permute":
+            weights = random_permute_flat(
+                [weights], self.example_mlp, None, random_permute_mlp
+            )[0]
+        if self.cfg.augment == "sort_permute":
+            example_mlp = generate_mlp_from_weights(weights, self.mlp_kwargs)
+            weights = random_permute_flat(
+                [weights], example_mlp, None, sorted_permute_mlp
+            )[0]
+        if self.cfg.augment == "permute_same":
+            weights = random_permute_flat(
+                [weights],
+                self.example_mlp,
+                int(np.random.random() * self.cfg.augment_amount),
+                random_permute_mlp,
+            )[0]
+        if self.cfg.jitter_augment:
+            weights += np.random.uniform(0, 1e-3, size=weights.shape)
+
+        if self.transform:
+            weights = self.transform(weights)
+        # We also return prev_weights, in case you want to do permutation, we store prev_weights to sanity check later
+        return weights, prev_weights
