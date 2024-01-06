@@ -227,32 +227,9 @@ class WeightDataset(Dataset):
                 weights.append(state_dict[weight].flatten().cpu())
         #if ginr weights
         if self.is_ginr:
-            '''
-            no_of_layers = len(self.mlp_kwargs["hidden_neurons"]) + 1
-            
-            for i in range(no_of_layers):
-                if i in self.mlp_kwargs["modulated_layer_idxs"]:
-                    shared_factor = state_dict['factors.shared_factors.linear_wb' + str(i)]
-                    modulation_factor = state_dict["factors.init_modulation_factors.linear_wb" + str(i)]
-                    modulation_param = torch.matmul(modulation_factor, shared_factor)
-                    base_param_w = 1.
-                else:
-                    modulation_param = 1.
-                    base_param_w = state_dict['hyponet.params_dict.linear_wb' + str(i)][:-1]
-                    
-                param_w = base_param_w * modulation_param
-                base_param_b = state_dict['hyponet.params_dict.linear_wb' + str(i)][-1].unsqueeze(dim=0)
-                
-                if self.mlp_kwargs.normalize_weight:
-                    param_w = F.normalize(param_w, dim=0)
-                    modulated_param = torch.cat([param_w, base_param_b], dim=0)
-                    
-                weights.append(modulated_param.flatten().cpu())
-            '''
             for weight in state_dict:
-                if "factors" not in weight:
-                    shapes.append(np.prod(state_dict[weight].shape))
-                    weights.append(state_dict[weight].flatten().cpu())
+                shapes.append(np.prod(state_dict[weight].shape))
+                weights.append(state_dict[weight].flatten().cpu())
 
         weights = torch.hstack(weights)
         prev_weights = weights.clone()

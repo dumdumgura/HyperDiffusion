@@ -15,6 +15,8 @@ from torchmetrics_fid import FrechetInceptionDistance
 import os
 from omegaconf import DictConfig
 from typing import List
+from model import create_model
+import plyfile
 
 # Using edited 2D-FID code of torch_metrics
 fid = FrechetInceptionDistance(reset_real_features=True)
@@ -82,19 +84,19 @@ def get_mlp(mlp_kwargs):
     return mlp
 
 
-def generate_mlp_from_weights(weights, mlp_kwargs):
-    mlp = get_mlp(mlp_kwargs)
+def generate_mlp_from_weights(weights, mlp_kwargs, config=None):
+    if config.mlps_type == "ginr":
+        mlp = create_model(config.arch)
+    else:
+        mlp = get_mlp(mlp_kwargs)
+    
     state_dict = mlp.state_dict()
     weight_names = list(state_dict.keys())
     for layer_id, layer in enumerate(weight_names):
         val = state_dict[layer]
         num_params = np.product(list(val.shape))
         w = weights[:num_params]
-        # if GINR
-        if mlp_kwargs.model_type == "mlp_3d_ginr":
-            w = w.view(val.shape[::-1]).T
-        else:
-            w = w.view(*val.shape)
+        w = w.view(*val.shape)
         state_dict[layer] = w
         weights = weights[num_params:]
     assert len(weights) == 0, f"len(weights) = {len(weights)}"
@@ -228,3 +230,43 @@ def reconstruct_from_mlp(mlp, cfg: DictConfig, additional_experiment_specifiers:
                         )
     
     return vertices, faces
+
+def reconstruct_shape(meshes,epoch,it=0,mode='train'):
+        ply_data_arr =  []
+        ply_filename_out_arr = []
+        
+        for k in range(len(meshes)):
+            # try writing to the ply file
+            verts = meshes[k]['vertices']
+            faces = meshes[k]['faces']
+            voxel_grid_origin = [-0.5] * 3
+            mesh_points = np.zeros_like(verts)
+            mesh_points[:, 0] = voxel_grid_origin[0] + verts[:, 0]
+            mesh_points[:, 1] = voxel_grid_origin[1] + verts[:, 1]
+            mesh_points[:, 2] = voxel_grid_origin[2] + verts[:, 2]
+
+            num_verts = verts.shape[0]
+            num_faces = faces.shape[0]
+
+            verts_tuple = np.zeros((num_verts,), dtype=[("x", "f4"), ("y", "f4"), ("z", "f4")])
+
+            for i in range(0, num_verts):
+                verts_tuple[i] = tuple(mesh_points[i, :])
+
+            faces_building = []
+            for i in range(0, num_faces):
+                faces_building.append(((faces[i, :].tolist(),)))
+            faces_tuple = np.array(faces_building, dtype=[("vertex_indices", "i4", (3,))])
+
+            el_verts = plyfile.PlyElement.describe(verts_tuple, "vertex")
+            el_faces = plyfile.PlyElement.describe(faces_tuple, "face")
+
+            ply_data = plyfile.PlyData([el_verts, el_faces])
+            # logging.debug("saving mesh to %s" % (ply_filename_out))
+            ply_filename_out = "./results.tmp/ply/" + str(epoch) + "_" +str(mode)+"_"+ str(it*len(meshes)+k) + "_poly.ply"
+            ply_data.write(ply_filename_out)
+            
+            ply_data_arr.append(ply_data)
+            ply_filename_out_arr.append(ply_filename_out)
+            
+        return ply_data_arr, ply_filename_out_arr

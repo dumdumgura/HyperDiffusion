@@ -209,7 +209,6 @@ def create_mesh(
         scale,
     )
 
-
 def convert_sdf_samples_to_ply(
     pytorch_3d_sdf_tensor,
     voxel_grid_origin,

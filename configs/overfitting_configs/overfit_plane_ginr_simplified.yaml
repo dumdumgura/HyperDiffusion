@@ -7,6 +7,7 @@ filter_bad: False
 in_out: True
 augment_on_the_fly: False
 mesh_jitter: False
+jitter_augment: False
 dataset_dir: "./data/sdf/171shape_occ_sdf/"
 dataset: "obj"
 wandb_dir: .
@@ -68,3 +69,44 @@ mlp_config:
     modulated_layer_idxs: [1]
     normalize_weight: True
     output_bias: 0
+
+arch:
+  type: meta_low_rank_modulated_inr
+  ema: null
+  rank:
+  - 128
+  modulated_layer_idxs:
+  - 1
+  use_factorization: false
+  n_inner_step: 5
+  inner_lr: 0.003
+  coord_sampler:
+    data_type: image
+    coord_range:
+    - -1.0
+    - 1.0
+    train_strategy: null
+    val_strategy: null
+  hyponet:
+    share_bias: false
+    type: mlp
+    n_layer: 6
+    hidden_dim:
+    - 256
+    use_bias: true
+    input_dim: 3
+    output_dim: 2
+    output_bias: 0
+    fourier_mapping:
+      type: siren
+      trainable: false
+      use_ff: false
+      ff_sigma: 0
+      ff_dim: 3
+    activation:
+      type: siren
+      siren_w0: 30
+    initialization:
+      weight_init_type: siren
+      bias_init_type: siren
+    normalize_weight: true

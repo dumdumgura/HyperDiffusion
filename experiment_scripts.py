@@ -1,4 +1,4 @@
-from hd_utils import (Config, get_mlp, lin_interpolate, generate_mlp_from_weights, reconstruct_from_mlp)
+from hd_utils import (Config, get_mlp, lin_interpolate, generate_mlp_from_weights, reconstruct_from_mlp, reconstruct_shape)
 import hydra
 from omegaconf import DictConfig
 from dataset import WeightDataset, ModulationDataset
@@ -150,39 +150,12 @@ def reconstruct_from_ginr_experiment(cfg: DictConfig):
     iterator_w = iter(train_dt)
     ginr_weights = next(iterator_w)[0]
     # generate mlp from weights
-    mlp_from_ginr = generate_mlp_from_weights(ginr_weights, mlp_kwargs)
+    mlp_from_ginr = generate_mlp_from_weights(ginr_weights, mlp_kwargs, config=Config.config)
+    mlp_from_ginr.to(torch.device("cuda"))
     
-    input = {"coords": torch.asarray([-0.5, -0.5, -0.5])}
-    #mlp_from_ginr(input)
+    meshes = mlp_from_ginr.overfit_one_shape(type='sdf')
+    reconstruct_shape(meshes=meshes, epoch=-1, mode="reconstruct_from_ginr_experiment")
     
-    #############
-    # Function to calculate the total parameter size of a model
-    total_params = 0
-    for param in mlp_from_ginr.parameters():
-        total_params += param.numel()
-    print(total_params, len(ginr_weights))
-    
-    # generate mesh from MLP
-    sdf_decoder = SDFDecoder(
-            mlp_from_ginr,
-            None,
-            "init_from_model",
-            cfg,
-        )
-    
-    vertices, faces, _ = sdf_meshing.create_mesh(
-                            sdf_decoder,
-                            os.path.join(
-                                "./experiments",
-                                f"ginr_reconstruction_ply"
-                            ),
-                            N=256,
-                            level=0
-                            if Config.config["mlp_config"]["params"]["output_type"] == "occ" and Config.config["mlp_config"]["params"]["out_act"] == "sigmoid"
-                            else 0
-                        )
-    
-    return vertices, faces
 
 def reconstruct_from_hyperdiff_weights(cfg: DictConfig):
     Config.config = config = cfg
