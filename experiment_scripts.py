@@ -26,10 +26,11 @@ from typing import List
 
 def main(cfg: DictConfig):
     #lin_interpolate_weight_space_experiment(cfg)
-    reconstruct_from_ginr_experiment(cfg)
+    #reconstruct_from_ginr_experiment(cfg)
     #reconstruct_from_hyperdiff_weights(cfg)
     #overfit_with_transformer(cfg)
     #overfit_modulation_with_transformer(cfg)
+    lin_interpolate_weight_space_experiment_modulation(cfg)
 
 def lin_interpolate_weight_space_experiment(cfg: DictConfig):
     Config.config = config = cfg
@@ -75,34 +76,16 @@ def lin_interpolate_weight_space_experiment(cfg: DictConfig):
     iterator_w = iter(train_dt)
     w_start = next(iterator_w)[0]
     w_end = next(iterator_w)[0]
-    lin_erp_interval = 0.5
-    w_lerp = lin_interpolate(w_start, w_end, 0.5)
+    lin_erp_interval = 0.4
+    w_lerp = lin_interpolate(w_start, w_end, lin_erp_interval)
     
     # generate mlp from weights
-    mlp_lerp = generate_mlp_from_weights(w_lerp, mlp_kwargs)
+    mlp_lerp = generate_mlp_from_weights(w_lerp, mlp_kwargs, config=Config.config)
+    mlp_lerp.to(torch.device("cuda"))
     print(mlp_lerp)
     
-    # generate mesh from MLP
-    sdf_decoder = SDFDecoder(
-            mlp_lerp,
-            None,
-            "init_from_model",
-            cfg,
-        )
-    
-    vertices, faces, _ = sdf_meshing.create_mesh(
-                            sdf_decoder,
-                            os.path.join(
-                                "./experiments",
-                                f"lin_erp_{lin_erp_interval}_ply"
-                            ),
-                            N=256,
-                            level=0
-                            if Config.config["mlp_config"]["params"]["output_type"] == "occ" and Config.config["mlp_config"]["params"]["out_act"] == "sigmoid"
-                            else 0
-                        )
-    
-    return vertices, faces
+    meshes = mlp_lerp.overfit_one_shape(type='sdf')
+    reconstruct_shape(meshes=meshes, epoch=-1, mode="lin_interpolate_weight_space_experiment" + str(lin_erp_interval))
 
 def reconstruct_from_ginr_experiment(cfg: DictConfig):
     Config.config = config = cfg
@@ -359,8 +342,126 @@ def overfit_modulation_with_transformer(cfg: DictConfig):
         train_object_names,
         is_ginr= True if Config.get("mlps_type") == "ginr" else False
     )
+
+def reconstruct_from_ginr_experiment_modulation(cfg: DictConfig):
+    Config.config = config = cfg
+    method = Config.get("method")
+    print(method)
+    
+    # Config set for weight reeading
+    mlps_folder_train = Config.get("mlps_folder_train")
+    
+    # read mlp kwargs
+    mlp_kwargs = Config.config["mlp_config"]["params"]
+    
+    #set train object names
+    dataset_path = os.path.join(Config.config["dataset_dir"], Config.config["dataset"])
+    train_object_names = np.genfromtxt(
+        os.path.join(dataset_path, "train_split.lst"), dtype="str"
+    )
+    if not cfg.mlp_config.params.move:
+        train_object_names = set([str.split(".")[0] for str in train_object_names])
+        
+    # set train dataset
+    train_dt = ModulationDataset(
+        mlps_folder_train,
+        None, # wandb_logger,
+        None, # model_dims
+        mlp_kwargs,
+        cfg,
+        train_object_names,
+        is_ginr= True if Config.get("mlps_type") == "ginr" else False
+    )
+    
+    print(
+        "Train dataset length: {}".format(
+            len(train_dt)
+        )
+    )
+    
+    for w_i in train_dt:
+        print(w_i[0].shape)
+        break
+    iterator_w = iter(train_dt)
+    ginr_weights = next(iterator_w)[0]
+    # generate mlp from weights
+    mlp_from_ginr = generate_mlp_from_weights(ginr_weights, mlp_kwargs, config=Config.config)
+    mlp_from_ginr.to(torch.device("cuda"))
+    
+    meshes = mlp_from_ginr.overfit_one_shape(type='sdf')
+    reconstruct_shape(meshes=meshes, epoch=-1, mode="reconstruct_from_ginr_experiment")
     
     
+    
+def lin_interpolate_weight_space_experiment_modulation(cfg: DictConfig):
+    Config.config = config = cfg
+    method = Config.get("method")
+    print(method)
+    
+    # Config set for weight reeading
+    mlps_folder_train = Config.get("mlps_folder_train")
+    
+    # read mlp kwargs
+    mlp_kwargs = Config.config["mlp_config"]["params"]
+    
+    #set train object names
+    dataset_path = os.path.join(Config.config["dataset_dir"], Config.config["dataset"])
+    train_object_names = np.genfromtxt(
+        os.path.join(dataset_path, "train_split.lst"), dtype="str"
+    )
+    if not cfg.mlp_config.params.move:
+        train_object_names = set([str.split(".")[0] for str in train_object_names])
+        
+    # set train dataset
+    train_dt = ModulationDataset(
+        mlps_folder_train,
+        None, # wandb_logger,
+        None, # model_dims
+        mlp_kwargs,
+        cfg,
+        train_object_names,
+        is_ginr= True if Config.get("mlps_type") == "ginr" else False
+    )
+    
+    print(
+        "Train dataset length: {}".format(
+            len(train_dt)
+        )
+    )
+    
+    for w_i in train_dt:
+        print(w_i[0].shape)
+        break
+    
+    # lin. interpolate weight
+    iterator_w = iter(train_dt)
+    modulation_param_start = next(iterator_w)[0]
+    modulation_param_end = next(iterator_w)[0]
+    lin_erp_interval = 0.5
+    modulation_param_lerp = lin_interpolate(modulation_param_start, modulation_param_end, lin_erp_interval)
+    
+    template_ginr_weights = train_dt.get_all_weights(0)[0]
+    template_ginr = generate_mlp_from_weights(template_ginr_weights, mlp_kwargs, config=Config.config, isTemplate=True)
+    
+    specific_ginr_start = generate_mlp_from_weights(modulation_param_start, mlp_kwargs, config=Config.config, template_ginr=template_ginr)
+    specific_ginr_start.to(torch.device("cuda"))
+    
+    specific_ginr_end = generate_mlp_from_weights(modulation_param_end, mlp_kwargs, config=Config.config, template_ginr=template_ginr)
+    specific_ginr_end.to(torch.device("cuda"))
+    
+    meshes = specific_ginr_start.overfit_one_shape(type='sdf')
+    reconstruct_shape(meshes=meshes, epoch=-1, mode="reconstruct_from_ginr_modulation_experiment_start")
+    
+    meshes = specific_ginr_end.overfit_one_shape(type='sdf')
+    reconstruct_shape(meshes=meshes, epoch=-1, mode="reconstruct_from_ginr_modulation_experiment_end")
+    
+    specific_ginr_lerp = generate_mlp_from_weights(modulation_param_lerp, mlp_kwargs, config=Config.config, template_ginr=template_ginr)
+    specific_ginr_lerp.to(torch.device("cuda"))
+    
+    meshes = specific_ginr_lerp.overfit_one_shape(type='sdf')
+    reconstruct_shape(meshes=meshes, epoch=-1, mode="reconstruct_from_ginr_modulation_experiment_lerp")
+    
+    pass
 
 if __name__ == "__main__":
     main()

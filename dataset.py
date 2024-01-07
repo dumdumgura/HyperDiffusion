@@ -272,7 +272,10 @@ class WeightDataset(Dataset):
         if self.is_ginr:
             state_dict = state_dict["state_dict"]
 
-        weights, weights_prev = self.get_weights(state_dict)
+        if isinstance(self, ModulationDataset):
+            weights, weights_prev = self.get_weights(state_dict)
+        else:
+            weights, weights_prev = WeightDataset.get_weights(self, state_dict)
 
         if self.cfg.augment == "inter":
             other_index = np.random.choice(len(self.mlp_files))
@@ -292,8 +295,12 @@ class WeightDataset(Dataset):
 class ModulationDataset(WeightDataset):
     def __init__(self, mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names=None, is_ginr=False):
         super().__init__(mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names, is_ginr)
+        self.use_parents_get_weights = False
         
     def get_weights(self, state_dict):
+        if self.use_parents_get_weights:
+            return super().get_weights(state_dict)
+                                       
         weights = []
         shapes = []
         
@@ -331,3 +338,13 @@ class ModulationDataset(WeightDataset):
             weights = self.transform(weights)
         # We also return prev_weights, in case you want to do permutation, we store prev_weights to sanity check later
         return weights, prev_weights
+    
+    def __getitem__(self, index):
+        return super().__getitem__(index)
+    
+    def get_all_weights(self, index):
+        self.use_parents_get_weights = True
+        res = self.__getitem__(index)
+        self.use_parents_get_weights = False
+        
+        return res

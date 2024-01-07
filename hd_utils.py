@@ -1,4 +1,5 @@
 from math import ceil
+import copy
 
 import numpy as np
 import pyrender
@@ -8,6 +9,7 @@ import trimesh
 from mlp_models import MLP, MLP3D, MLP3D_GINR
 from Pointnet_Pointnet2_pytorch.log.classification.pointnet2_ssg_wo_normals import \
     pointnet2_cls_ssg
+from model.generalizable_INR.transinr import TransINR
 from siren.experiment_scripts.test_sdf import SDFDecoder
 from siren import sdf_meshing
 from torchmetrics_fid import FrechetInceptionDistance
@@ -84,25 +86,40 @@ def get_mlp(mlp_kwargs):
     return mlp
 
 
-def generate_mlp_from_weights(weights, mlp_kwargs, config=None):
-    if config.mlps_type == "ginr":
-        mlp = create_model(config.arch)
+def generate_mlp_from_weights(weights, mlp_kwargs, config=None, template_ginr : TransINR=None, isTemplate=False):
+    if template_ginr == None:
+        if config.mlps_type == "ginr":
+            mlp = create_model(config.arch)
+        else:
+            mlp = get_mlp(mlp_kwargs)
+        
+        state_dict = mlp.state_dict()
+        weight_names = list(state_dict.keys())
+        for layer_id, layer in enumerate(weight_names):
+            val = state_dict[layer]
+            num_params = np.product(list(val.shape))
+            w = weights[:num_params]
+            w = w.view(*val.shape)
+            state_dict[layer] = w
+            weights = weights[num_params:]
+        assert len(weights) == 0, f"len(weights) = {len(weights)}"
+        mlp.load_state_dict(state_dict)
+        if isTemplate:
+            for modulated_param_id, modulated_param_name in enumerate(mlp.factors.modulated_param_names):
+                modulated_param_shape = mlp.factors.init_modulation_factors[modulated_param_name].shape
+                mlp.factors.init_modulation_factors[modulated_param_name] = torch.nn.Parameter(torch.full(modulated_param_shape, torch.nan))
     else:
-        mlp = get_mlp(mlp_kwargs)
-    
-    state_dict = mlp.state_dict()
-    weight_names = list(state_dict.keys())
-    for layer_id, layer in enumerate(weight_names):
-        val = state_dict[layer]
-        num_params = np.product(list(val.shape))
-        w = weights[:num_params]
-        w = w.view(*val.shape)
-        state_dict[layer] = w
-        weights = weights[num_params:]
-    assert len(weights) == 0, f"len(weights) = {len(weights)}"
-    mlp.load_state_dict(state_dict)
+        mlp = copy.deepcopy(template_ginr)
+        # Here weights should be modulation params
+        for modulated_param_id, modulated_param_name, in enumerate(mlp.factors.modulated_param_names):
+            modulated_param_shape = mlp.factors.init_modulation_factors[modulated_param_name].shape
+            num_params = np.product(list(modulated_param_shape))
+            w = weights[:num_params]
+            w = w.view(*modulated_param_shape)
+            mlp.factors.init_modulation_factors[modulated_param_name] = torch.nn.Parameter(w)
+            weights = weights[num_params:]
+                
     return mlp
-
 
 def render_meshes(meshes):
     out_imgs = []
