@@ -15,7 +15,8 @@ from embedder import Embedder
 from mlp_models import MLP
 import pytorch_lightning as pl
 
-from hd_utils import (Config, get_mlp, lin_interpolate, generate_mlp_from_weights, reconstruct_from_mlp)
+from hd_utils import (Config, get_mlp, lin_interpolate, generate_mlp_from_weights, reconstruct_from_mlp, reconstruct_shape)
+from model.generalizable_INR.transinr import TransINR
 from siren.experiment_scripts.test_sdf import SDFDecoder
 from siren import sdf_meshing
 import os
@@ -444,6 +445,7 @@ class Transformer(pl.LightningModule):
                 
         self.mlp_kwargs = None
         self.cfg = None
+        self.template_ginr = None
     
     def set_mlp_kwargs(self, mlp_kwargs):
         self.mlp_kwargs = mlp_kwargs
@@ -452,6 +454,11 @@ class Transformer(pl.LightningModule):
 
     def set_cfg(self, cfg):
         self.cfg = cfg
+        
+        return
+    
+    def set_template_ginr(self, template_ginr : TransINR):
+        self.template_ginr = template_ginr
         
         return
     
@@ -545,7 +552,7 @@ class Transformer(pl.LightningModule):
         else:
             inp = [x, t_embedding]
         inp = torch.cat(inp, 1)
-        output = self.decoder(inp)
+        output = self.decoder(inp) # Enters GPT model
         # TODO: Global residual connection:
         if self.use_global_residual:
             output = output + x_prev
@@ -567,11 +574,18 @@ class Transformer(pl.LightningModule):
         x = batch[0]
         output = self.forward(x,t)
         
-        overfit_mlp = generate_mlp_from_weights(output.flatten(), self.mlp_kwargs)
+        if "ginr" in self.cfg.method:
+            mlp = generate_mlp_from_weights(output.flatten(), self.mlp_kwargs, config=self.cfg, template_ginr=self.template_ginr, isTemplate=False)
+            mlp.to(torch.device("cuda"))
+    
+            meshes = mlp.overfit_one_shape(type='sdf')
+            reconstruct_shape(meshes=meshes, epoch=self.current_epoch, mode="ginr_simplified_overfit_transformer_Experiment")
+        else:
+            mlp = generate_mlp_from_weights(output.flatten(), self.mlp_kwargs)
         
-        vertices, faces = reconstruct_from_mlp(mlp=overfit_mlp, cfg=self.cfg, additional_experiment_specifiers=["epoch", str(self.current_epoch)])
+            vertices, faces = reconstruct_from_mlp(mlp=mlp, cfg=self.cfg, additional_experiment_specifiers=["epoch", str(self.current_epoch)])
         
-        return vertices, faces
+            return vertices, faces
 
 if __name__ == "__main__":
     mlp = MLP(

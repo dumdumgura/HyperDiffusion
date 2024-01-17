@@ -14,7 +14,7 @@ from diffusion.gaussian_diffusion import (GaussianDiffusion, LossType,
                                           ModelMeanType, ModelVarType)
 from evaluation_metrics_3d import compute_all_metrics, compute_all_metrics_4d
 from hd_utils import (Config, calculate_fid_3d, generate_mlp_from_weights,
-                      render_mesh, render_meshes)
+                      render_mesh, render_meshes, reconstruct_shape)
 from siren import sdf_meshing
 from siren.dataio import anime_read
 from siren.experiment_scripts.test_sdf import SDFDecoder
@@ -52,6 +52,9 @@ class HyperDiffusion(pl.LightningModule):
             loss_type=LossType[cfg.diff_config.params.loss_type],
             diff_pl_module=self,
         )
+        if "ginr_modulated" in self.method:
+            self.template_ginr_weights = self.train_dt.get_all_weights(0)[0]
+            self.template_ginr = generate_mlp_from_weights(self.template_ginr_weights, self.mlp_kwargs, config=Config.config, isTemplate=True)
 
     def forward(self, images):
         t = (
@@ -97,24 +100,35 @@ class HyperDiffusion(pl.LightningModule):
         if "hyper" in self.method and self.trainer.global_step == 0:
             curr_weights = Config.get("curr_weights")
             img = input_data[0].flatten()[:curr_weights]
-            print(img.shape)
-            mlp = generate_mlp_from_weights(img, self.mlp_kwargs)
-            sdf_decoder = SDFDecoder(
-                self.mlp_kwargs.model_type,
-                None,
-                "nerf" if self.mlp_kwargs.model_type == "nerf" else "mlp",
-                self.mlp_kwargs,
-            )
-            sdf_decoder.model = mlp.cuda()
-            if not self.mlp_kwargs.move:
-                sdf_meshing.create_mesh(
-                    sdf_decoder,
-                    "meshes/first_mesh",
-                    N=128,
-                    level=0.5 if self.mlp_kwargs.output_type == "occ" else 0,
+            print(f"img_shape: {img.shape}")
+            if "ginr_modulated" in self.method:
+                mlp = generate_mlp_from_weights(img, self.mlp_kwargs, config=Config.config, template_ginr=self.template_ginr)
+                mlp.to(torch.device("cuda"))
+                mesh = mlp.overfit_one_shape(type='sdf')
+                reconstruct_shape(meshes=mesh, epoch=-1, mode="first_mesh_hyperdiffusion")
+                mesh = trimesh.Trimesh(mesh[0]['vertices'], mesh[0]['faces'])
+                out_imgs = render_meshes([mesh])
+                self.logger.log_image(
+                    "sanity_check_renders", out_imgs, step=self.current_epoch
                 )
+            else:
+                mlp = generate_mlp_from_weights(img, self.mlp_kwargs, config=Config.config)
+                sdf_decoder = SDFDecoder(
+                    self.mlp_kwargs.model_type,
+                    None,
+                    "nerf" if self.mlp_kwargs.model_type == "nerf" else "mlp",
+                    self.mlp_kwargs,
+                )
+                sdf_decoder.model = mlp.cuda()
+                if not self.mlp_kwargs.move:
+                    sdf_meshing.create_mesh(
+                        sdf_decoder,
+                        "meshes/first_mesh",
+                        N=128,
+                        level=0.5 if self.mlp_kwargs.output_type == "occ" else 0,
+                    )
 
-            print("Input images shape:", input_data.shape)
+                print("Input images shape:", input_data.shape)
         elif self.method == "raw_3d" and self.trainer.global_step == 0:
             if self.cfg.mlp_config.params.move:
                 out_imgs = []
@@ -143,15 +157,18 @@ class HyperDiffusion(pl.LightningModule):
 
         # Output statistics every 100 step
         if self.trainer.global_step % 100 == 0:
-            print(input_data.shape)
+            print(f"input.data.shape = {input_data.shape}")
             print(
                 "Orig weights[0].stats",
                 input_data.min().item(),
                 input_data.max().item(),
                 input_data.mean().item(),
                 input_data.std().item(),
+                input_data.var().item(),
             )
 
+        
+        #### Burada Basliyor
         # Sample a diffusion timestep
         t = (
             torch.randint(0, high=self.diff.num_timesteps, size=(input_data.shape[0],))
@@ -169,7 +186,7 @@ class HyperDiffusion(pl.LightningModule):
             model_kwargs=None,
         )
         loss_mse = loss_terms["loss"].mean()
-        self.log("train_loss", loss_mse)
+        self.log("train/train_loss", loss_mse)
 
         loss = loss_mse
         return loss
@@ -192,10 +209,10 @@ class HyperDiffusion(pl.LightningModule):
         self.log("epoch_loss", epoch_loss)
 
         # Handle 3D/4D sample generation
-        if self.method == "hyper_3d":
-            if self.current_epoch % 10 == 0:
+        if "hyper" in self.method:
+            if self.current_epoch % 1 == 0:
                 x_0s = (
-                    self.diff.ddim_sample_loop(self.model, (4, *self.image_size[1:]))
+                    self.diff.ddim_sample_loop(self.model, (self.cfg.num_of_generations, *self.image_size[1:]))
                     .cpu()
                     .float()
                 )
@@ -206,6 +223,7 @@ class HyperDiffusion(pl.LightningModule):
                     x_0s.max().item(),
                     x_0s.mean().item(),
                     x_0s.std().item(),
+                    x_0s.var().item()
                 )
                 if self.mlp_kwargs.move:
                     for i, x_0 in enumerate(x_0s):
@@ -230,20 +248,24 @@ class HyperDiffusion(pl.LightningModule):
                             }
                         )
                 else:
-                    meshes, sdfs = self.generate_meshes(x_0s, None, res=512)
-                    for mesh in meshes:
-                        mesh.vertices *= 2
-                    print(
-                        "sdfs.stats",
-                        sdfs.min().item(),
-                        sdfs.max().item(),
-                        sdfs.mean().item(),
-                        sdfs.std().item(),
-                    )
-                    out_imgs = render_meshes(meshes)
-                    self.logger.log_image(
-                        "generated_renders", out_imgs, step=self.current_epoch
-                    )
+                    #if self.current_epoch % Config.get("val_fid_calculation_period") == 0:
+                    if self.current_epoch % 15 == 0:
+                        meshes, sdfs = self.generate_meshes(x_0s, None, res=512)
+                        #for mesh in meshes:
+                            #mesh.vertices *= 2
+                            
+                        if sdfs:
+                            print(
+                                "sdfs.stats",
+                                sdfs.min().item(),
+                                sdfs.max().item(),
+                                sdfs.mean().item(),
+                                sdfs.std().item(),
+                            )
+                        out_imgs = render_meshes(meshes)
+                        self.logger.log_image(
+                            "generated_renders", out_imgs, step=self.current_epoch
+                        )
         # Handle Voxel baseline sample generation
         elif self.method == "raw_3d":
             if self.current_epoch % 5 == 0:
@@ -298,6 +320,13 @@ class HyperDiffusion(pl.LightningModule):
         meshes = []
         sdfs = []
         for i, weights in enumerate(x_0s):
+            if "ginr_modulated" in self.method:
+                mlp = generate_mlp_from_weights(weights, self.mlp_kwargs, config=Config.config, template_ginr=self.template_ginr)
+                mlp.to(torch.device("cuda"))
+                mesh = mlp.overfit_one_shape(type='sdf')
+                mesh = trimesh.Trimesh(mesh[0]['vertices'], mesh[0]['faces'])
+                meshes.append(mesh)
+                continue
             mlp = generate_mlp_from_weights(weights, self.mlp_kwargs)
             sdf_decoder = SDFDecoder(
                 self.mlp_kwargs.model_type,
@@ -352,7 +381,7 @@ class HyperDiffusion(pl.LightningModule):
                     sdfs.append(sdf)
                     mesh = trimesh.Trimesh(v, f)
                     meshes.append(mesh)
-        sdfs = torch.stack(sdfs)
+        #sdfs = torch.stack(sdfs)
         return meshes, sdfs
 
     def print_summary(self, flat, func):
@@ -485,7 +514,7 @@ class HyperDiffusion(pl.LightningModule):
         )
         return metrics
 
-    def calc_metrics(self, split_type):
+    def calc_metrics(self, split_type):   
         dataset_path = os.path.join(
             Config.config["dataset_dir"],
             Config.config["dataset"] + f"_{self.cfg.val.num_points}_pc",

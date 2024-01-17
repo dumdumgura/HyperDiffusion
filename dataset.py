@@ -166,6 +166,8 @@ class WeightDataset(Dataset):
                 # Exclude all files except weights
                 if file.split(".")[-1] not in ["pt", "pth"]:
                     if "ginr" in mlps_folder:
+                        if file not in object_names:
+                            continue
                         pattern = r'epoch(\d+)_model\.pt'
                         max_epoch = -1
                         latest_checkpoint = None
@@ -276,7 +278,15 @@ class WeightDataset(Dataset):
             weights, weights_prev = self.get_weights(state_dict)
         else:
             weights, weights_prev = WeightDataset.get_weights(self, state_dict)
-
+        if self.cfg.normalize_input:
+            
+            def normalize(in_weight : torch.tensor):
+                mean = in_weight.mean()
+                std = in_weight.std()
+                return (in_weight - mean) / std
+            
+            weights = normalize(weights)
+            
         if self.cfg.augment == "inter":
             other_index = np.random.choice(len(self.mlp_files))
             other_dir = join(self.mlps_folder, self.mlp_files[other_index])
@@ -296,6 +306,8 @@ class ModulationDataset(WeightDataset):
     def __init__(self, mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names=None, is_ginr=False):
         super().__init__(mlps_folder, wandb_logger, model_dims, mlp_kwargs, cfg, object_names, is_ginr)
         self.use_parents_get_weights = False
+        self.modulated_layer_idxs = cfg.arch["modulated_layer_idxs"]
+        self.no_of_layers = cfg.arch.hyponet["n_layer"]
         
     def get_weights(self, state_dict):
         if self.use_parents_get_weights:
@@ -304,10 +316,8 @@ class ModulationDataset(WeightDataset):
         weights = []
         shapes = []
         
-        no_of_layers = len(self.mlp_kwargs["hidden_neurons"]) + 1
-        
-        for i in range(no_of_layers):
-                if i in self.mlp_kwargs["modulated_layer_idxs"]:
+        for i in range(self.no_of_layers):
+                if i in self.modulated_layer_idxs:
                     modulation_factor = state_dict["factors.init_modulation_factors.linear_wb" + str(i)]
                     weights.append(modulation_factor.flatten().cpu())
         

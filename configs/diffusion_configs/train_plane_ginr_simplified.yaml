@@ -1,0 +1,103 @@
+method: hyper_3d_ginr_modulated
+calculate_metric_on_test: True
+dedup: False
+test_sample_mult: 1.1
+filter_bad: false
+filter_bad_path: ./data/plane_problematic_shapes.txt
+disable_wandb: False
+dataset_dir: ./data/sdf/171shape_occ_sdf/
+dataset: obj_single
+normalize_input: True
+tensorboard_log_dir: .
+augment: False
+augment_amount: 0
+jitter_augment: False
+normalization_factor: 1
+num_of_generations: 1
+timesteps: 500
+epochs: 60000
+scheduler: True
+scheduler_step: 200
+best_model_save_path:
+mode: train
+mlps_folder_train: ./mlp_weights/ginr_simplified_overfit/results
+mlps_type: "ginr"
+model_resume_path:
+sampling: ddim
+val_fid_calculation_period: 20000
+lr: 0.0002
+batch_size: 32
+accumulate_grad_batches: 1
+val:
+  num_points: 2048
+  num_samples: 5
+
+mlp_config:
+  params:
+    model_type: mlp_3d
+    out_size: 1
+    hidden_neurons:
+      - 128
+      - 128
+      - 128
+    output_type: occ
+    out_act: sigmoid
+    multires: 4
+    use_leaky_relu: False
+    move: False
+
+arch:
+  type: meta_low_rank_modulated_inr
+  ema: null
+  rank:
+  - 128
+  modulated_layer_idxs:
+  - 1
+  use_factorization: false
+  n_inner_step: 5
+  inner_lr: 0.003
+  coord_sampler:
+    data_type: image
+    coord_range:
+    - -1.0
+    - 1.0
+    train_strategy: null
+    val_strategy: null
+  hyponet:
+    share_bias: false
+    type: mlp
+    n_layer: 6
+    hidden_dim:
+    - 256
+    use_bias: true
+    input_dim: 3
+    output_dim: 2
+    output_bias: 0
+    fourier_mapping:
+      type: siren
+      trainable: false
+      use_ff: false
+      ff_sigma: 0
+      ff_dim: 3
+    activation:
+      type: siren
+      siren_w0: 30
+    initialization:
+      weight_init_type: siren
+      bias_init_type: siren
+    normalize_weight: true
+
+diff_config:
+  params:
+    model_mean_type: START_X
+    model_var_type: FIXED_LARGE
+    loss_type: MSE
+
+transformer_config:
+  params:
+    n_embd: 1248 #assert n_embd % n_head == 0
+    n_layer: 12
+    n_head: 16
+    split_policy: layer_by_layer
+    use_global_residual: False
+    condition: 'no'

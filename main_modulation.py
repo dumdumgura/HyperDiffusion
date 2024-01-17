@@ -1,6 +1,6 @@
 import os
 
-from dataset import VoxelDataset, WeightDataset
+from dataset import VoxelDataset, WeightDataset, ModulationDataset
 from hd_utils import Config, get_mlp
 from hyperdiffusion import HyperDiffusion
 
@@ -9,6 +9,7 @@ os.environ["PYOPENGL_PLATFORM"] = "egl"
 import sys
 from datetime import datetime
 from os.path import join
+from model import create_model
 
 import hydra
 import numpy as np
@@ -29,7 +30,7 @@ sys.path.append("siren")
 @hydra.main(
     version_base=None,
     config_path="configs/diffusion_configs",
-    config_name="train_plane",
+    config_name="train_plane_ginr_simplified",
 )
 def main(cfg: DictConfig):
     Config.config = config = cfg
@@ -41,7 +42,7 @@ def main(cfg: DictConfig):
         mlp_kwargs = Config.config["mlp_config"]["params"]
 
     wandb.init(
-        project="hyperdiffusion",
+        project="hyperdiffusion_ginr_modulation",
         dir=config["tensorboard_log_dir"],
         settings=wandb.Settings(_disable_stats=True, _disable_meta=True),
         tags=[Config.get("mode")],
@@ -60,17 +61,29 @@ def main(cfg: DictConfig):
 
     # Initialize Transformer for HyperDiffusion
     if "hyper" in method:
-        mlp = get_mlp(mlp_kwargs)
-        state_dict = mlp.state_dict()
-        layers = []
-        layer_names = []
-        for l in state_dict:
-            shape = state_dict[l].shape
-            layers.append(np.prod(shape))
-            layer_names.append(l)
-        model = Transformer(
-            layers, layer_names, **Config.config["transformer_config"]["params"]
-        ).cuda()
+        if "ginr_modulated" in method:
+            mlp = create_model(config.arch)
+            modulation_layer_shapes = []
+            modulation_layer_names = []
+            for modulated_param_id, modulated_param_name in enumerate(mlp.factors.modulated_param_names):
+                modulated_param_shape = mlp.factors.init_modulation_factors[modulated_param_name].shape
+                modulation_layer_shapes.append(np.prod(modulated_param_shape))
+                modulation_layer_names.append(modulated_param_name)
+            model = Transformer(
+                modulation_layer_shapes, modulation_layer_names, **Config.config["transformer_config"]["params"]
+            ).cuda()
+        else:
+            mlp = get_mlp(mlp_kwargs)
+            state_dict = mlp.state_dict()
+            layers = []
+            layer_names = []
+            for l in state_dict:
+                shape = state_dict[l].shape
+                layers.append(np.prod(shape))
+                layer_names.append(l)
+            model = Transformer(
+                layers, layer_names, **Config.config["transformer_config"]["params"]
+            ).cuda()
     # Initialize UNet for Voxel baseline
     else:
         model = ldm.ldm.modules.diffusionmodules.openaimodel.UNetModel(
@@ -83,9 +96,9 @@ def main(cfg: DictConfig):
     )
     if not cfg.mlp_config.params.move:
         # COMMENTED FOR DEBUG PURPOSSES
-        train_object_names = set([str.split(".")[0] for str in train_object_names])
+        #train_object_names = set([str.split(".")[0] for str in train_object_names])
         # SET TRAIN OBJECT NAMES MANUALLY FOR DEBUG PURPOSSES FOR SINGLE OBJECT
-        #train_object_names = train_object_names.item().split(".")[0]
+        train_object_names = train_object_names.item().split(".")[0]
     # Check if dataset folder already has train,test,val split; create otherwise.
     if method == "hyper_3d":
         mlps_folder_all = mlps_folder_train
@@ -193,6 +206,55 @@ def main(cfg: DictConfig):
         train_dl = DataLoader(
             train_dt, batch_size=Config.get("batch_size"), shuffle=True, num_workers=2
         )
+    elif "ginr_modulated" in method:
+        val_object_names = np.genfromtxt(
+            os.path.join(dataset_path, "val_split.lst"), dtype="str"
+        )
+        #val_object_names = set([str.split(".")[0] for str in val_object_names])
+        val_object_names = val_object_names.item().split(".")[0]
+        
+        test_object_names = np.genfromtxt(
+            os.path.join(dataset_path, "test_split.lst"), dtype="str"
+        )
+        #test_object_names = set([str.split(".")[0] for str in test_object_names])
+        test_object_names = test_object_names.item().split(".")[0]
+        
+        train_dt = ModulationDataset(
+            mlps_folder_train,
+            wandb_logger,
+            model.dims,
+            mlp_kwargs,
+            cfg,
+            train_object_names,
+            is_ginr= True if Config.get("mlps_type") == "ginr" else False
+        )
+        train_dl = DataLoader(
+            train_dt,
+            batch_size=Config.get("batch_size"),
+            shuffle=True,
+            num_workers=8,
+            pin_memory=True,
+        )
+        
+        val_dt = ModulationDataset(
+            mlps_folder_train,
+            wandb_logger,
+            model.dims,
+            mlp_kwargs,
+            cfg,
+            val_object_names,
+            is_ginr= True if Config.get("mlps_type") == "ginr" else False
+        )
+        
+        test_dt = ModulationDataset(
+            mlps_folder_train,
+            wandb_logger,
+            model.dims,
+            mlp_kwargs,
+            cfg,
+            test_object_names,
+            is_ginr= True if Config.get("mlps_type") == "ginr" else False
+        )
 
     # These two dl's are just placeholders, during val and test evaluation we are looking at test_split.lst,
     # val_split.lst files, inside calc_metrics methods
@@ -204,7 +266,7 @@ def main(cfg: DictConfig):
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           )
 
     print(
-        "Train dataset length: {} Val dataset length: {} Test dataset length".format(
+        "Train dataset length: {} Val dataset length: {} Test dataset length {}".format(
             len(train_dt), len(val_dt), len(test_dt)
         )
     )
@@ -269,6 +331,7 @@ def main(cfg: DictConfig):
         check_val_every_n_epoch=Config.get("val_fid_calculation_period"),
         num_sanity_val_steps=0,
         accumulate_grad_batches=cfg.accumulate_grad_batches,
+        log_every_n_steps=1
     )
 
     if Config.get("mode") == "train":
@@ -285,5 +348,4 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-
     main()

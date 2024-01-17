@@ -91,6 +91,7 @@ class ModulatedParamsFactors(nn.Module):
                 if initialization_type.weight_init_type== 'kaiming_uniform':
                     bound = np.sqrt(3.0) / np.sqrt(fan_in)
                     init_modulation_factor = torch.rand(fan_in, fan_out)*2*bound-bound
+                    init_bias = torch.zeros(1,fan_out)
 
                 elif initialization_type.weight_init_type== 'siren':
                     #siren
@@ -108,7 +109,6 @@ class ModulatedParamsFactors(nn.Module):
 
                 # initialize bias
                 if not share_bias_in_hyponet:
-                    #init_bias = torch.zeros(1,fan_out)
                     init_modulation_factor = torch.concatenate([init_modulation_factor,init_bias],dim=0)
                 self.init_modulation_factors[name] = nn.Parameter(init_modulation_factor)
                 self.shared_factors[name] = None

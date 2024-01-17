@@ -1,7 +1,7 @@
 input_type: "mesh"
 output_type: "occ" # or sdf or occ
 augment: False
-mlps_folder_train: ./mlp_weights/ginr_simplified_overfit/results
+mlps_folder_train: ./mlp_weights/ginr_simplified_overfit_relu/
 mlps_type: ginr
 filter_bad: False
 in_out: True
@@ -10,6 +10,7 @@ mesh_jitter: False
 jitter_augment: False
 dataset_dir: ./data/sdf/171shape_occ_sdf/
 dataset: "obj"
+normalize_input: True
 wandb_dir: .
 batch_size: 2048
 lr: 1e-2
@@ -60,13 +61,36 @@ mlp_config:
 arch:
   type: meta_low_rank_modulated_inr
   ema: null
+  n_inner_step: 4
+  inner_lr: 0.0003
+  hyponet:
+    type: mlp
+    n_layer: 6
+    hidden_dim:
+    - 256
+    use_bias: true
+    share_bias: false
+    input_dim: 3
+    output_dim: 2
+    output_bias: 0.0
+    fourier_mapping:
+      type: PE
+      trainable: false
+      use_ff: true
+      ff_sigma: 4
+      ff_dim: 27
+    activation:
+      type: relu
+      siren_w0: null
+    initialization:
+      weight_init_type: kaiming_uniform
+      bias_init_type: zero
+    normalize_weight: true
   rank:
   - 128
   modulated_layer_idxs:
   - 1
   use_factorization: false
-  n_inner_step: 5
-  inner_lr: 0.003
   coord_sampler:
     data_type: image
     coord_range:
@@ -74,28 +98,5 @@ arch:
     - 1.0
     train_strategy: null
     val_strategy: null
-  hyponet:
-    share_bias: false
-    type: mlp
-    n_layer: 6
-    hidden_dim:
-    - 256
-    use_bias: true
-    input_dim: 3
-    output_dim: 2
-    output_bias: 0
-    fourier_mapping:
-      type: siren
-      trainable: false
-      use_ff: false
-      ff_sigma: 0
-      ff_dim: 3
-    activation:
-      type: siren
-      siren_w0: 30
-    initialization:
-      weight_init_type: siren
-      bias_init_type: siren
-    normalize_weight: true
 experiment_name: overfit_ginr_simplified
 save_folder : ./results.tmp/ply
