@@ -278,14 +278,6 @@ class WeightDataset(Dataset):
             weights, weights_prev = self.get_weights(state_dict)
         else:
             weights, weights_prev = WeightDataset.get_weights(self, state_dict)
-        if self.cfg.normalize_input:
-            
-            def normalize(in_weight : torch.tensor):
-                mean = in_weight.mean()
-                std = in_weight.std()
-                return (in_weight - mean) / std
-            
-            weights = normalize(weights)
             
         if self.cfg.augment == "inter":
             other_index = np.random.choice(len(self.mlp_files))

@@ -226,7 +226,7 @@ class MetaLowRankModulatedINR(TransINR):
         return outputs
 
 
-    def decode_with_modulation_factors(self, modulation_factors_dict,overfit=False,type='occ'):
+    def decode_with_modulation_factors(self, modulation_factors_dict,overfit=False,type='occ', res = 256):
         r"""Inference function on Hyponet, modulated via given modulation factors."""
         #coord = self.sample_coord_input(xs) if coord is None else coord
 
@@ -236,7 +236,7 @@ class MetaLowRankModulatedINR(TransINR):
 
 
         meshes = create_meshes(
-                self.hyponet, modulation_params_dict, level=0.0, N=256,overfit=overfit,type=type
+                self.hyponet, modulation_params_dict, level=0.0, N=res,overfit=overfit,type=type
                 )
 
         return meshes
@@ -386,12 +386,12 @@ class MetaLowRankModulatedINR(TransINR):
             return outputs, modulation_factors_dict, collated_history
 
 
-    def overfit_one_shape(self, coord=None,type='occ'):
+    def overfit_one_shape(self, coord=None, type='occ', res=256):
         modulation_factors_dict = self.get_init_modulation_factors_overfit()
         # convert modulation factors into modulation params
 
         if coord is None:
-            visuals = self.decode_with_modulation_factors(modulation_factors_dict, overfit=True,type=type)
+            visuals = self.decode_with_modulation_factors(modulation_factors_dict, overfit=True,type=type, res=res)
             return visuals
         else:
             modulation_params_dict = self.factors.compute_modulation_params_dict_overfit(modulation_factors_dict)

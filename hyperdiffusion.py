@@ -1,5 +1,6 @@
 import copy
 import os
+from operator import add
 
 import numpy as np
 import pytorch_lightning as pl
@@ -41,7 +42,10 @@ class HyperDiffusion(pl.LightningModule):
         encoded_outs = fake_data
         print("encoded_outs.shape", encoded_outs.shape)
         timesteps = Config.config["timesteps"]
+        # original betas
         betas = torch.tensor(np.linspace(1e-4, 2e-2, timesteps))
+        # beta trial
+        #betas = torch.tensor(np.linspace(1e-7, 2e-6, timesteps))
         self.image_size = encoded_outs[:1].shape
 
         # Initialize diffusion utiities
@@ -55,6 +59,10 @@ class HyperDiffusion(pl.LightningModule):
         if "ginr_modulated" in self.method:
             self.template_ginr_weights = self.train_dt.get_all_weights(0)[0]
             self.template_ginr = generate_mlp_from_weights(self.template_ginr_weights, self.mlp_kwargs, config=Config.config, isTemplate=True)
+            
+        if self.cfg.normalize_input:
+            self.data_mean = None
+            self.data_std = None
 
     def forward(self, images):
         t = (
@@ -93,7 +101,7 @@ class HyperDiffusion(pl.LightningModule):
         return vox_grid
 
     def training_step(self, train_batch, batch_idx):
-        # Extract input_data (either voxel or weight) which is the first element of the tuple
+        # Extract input_data (either voxel or weight) which is the first element    of the tuple
         input_data = train_batch[0]
 
         # At the first step output first element in the dataset as a sanit check
@@ -176,6 +184,9 @@ class HyperDiffusion(pl.LightningModule):
             .to(self.device)
         )
 
+        if self.cfg.normalize_input:
+            input_data = (input_data - self.data_mean.cuda()) / self.data_std.cuda()
+            
         # Execute a diffusion forward pass
         loss_terms = self.diff.training_losses(
             self.model,
@@ -186,7 +197,7 @@ class HyperDiffusion(pl.LightningModule):
             model_kwargs=None,
         )
         loss_mse = loss_terms["loss"].mean()
-        self.log("train/train_loss", loss_mse)
+        self.logger.log_metrics({"train/train_loss": loss_mse}, step=self.global_step)
 
         loss = loss_mse
         return loss
@@ -199,23 +210,47 @@ class HyperDiffusion(pl.LightningModule):
         )
         metrics = metric_fn("train")
         for metric_name in metrics:
-            self.log("train/" + metric_name, metrics[metric_name])
+            self.logger.log_metrics({"train/" + metric_name: metrics[metric_name]}, step=self.global_step)
         metrics = metric_fn("val")
         for metric_name in metrics:
-            self.log("val/" + metric_name, metrics[metric_name])
+            self.logger.log_metrics({"val/" + metric_name: metrics[metric_name]}, step=self.global_step)
+            
+        if self.cfg.vis_intermediate_timesteps:
+            sample_x_0s, indices = self.visualize_timestep_outputs()
+            
+            sample_x_0s = torch.vstack(sample_x_0s)
+            meshes, _ = self.generate_meshes(sample_x_0s)
+            out_imgs = render_meshes(meshes)
+            self.logger.log_image(
+                "intermediate_timestep_renders",
+                out_imgs,
+                step=self.current_epoch,
+                caption=list(map(add, ["t="]*len(indices), map(str, indices)))
+            )
+            
 
     def training_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
         epoch_loss = sum(output["loss"] for output in outputs) / len(outputs)
-        self.log("epoch_loss", epoch_loss)
+        self.logger.log_metrics({"epoch_loss": epoch_loss}, step=self.current_epoch)
 
         # Handle 3D/4D sample generation
         if "hyper" in self.method:
             if self.current_epoch % 1 == 0:
+                ## TO-DO
+                # Burada normalization factore bolmus. Once carpmisti
+                # Bizim de yapmamiz lazim
                 x_0s = (
                     self.diff.ddim_sample_loop(self.model, (self.cfg.num_of_generations, *self.image_size[1:]))
                     .cpu()
                     .float()
                 )
+                ## Burada batch mean'ini ekleyip std ile carpacagiz
+                ## Overfit oldugu icin sorun yok
+                ## Ama normal general case'de nasil yapacaguz dusunmek lazim
+                
+                ## Denormalization
+                if self.cfg.normalize_input:
+                    x_0s = (x_0s * self.data_std.cpu()) + self.data_mean.cpu()
                 x_0s = x_0s / self.cfg.normalization_factor
                 print(
                     "x_0s[0].stats",
@@ -248,12 +283,8 @@ class HyperDiffusion(pl.LightningModule):
                             }
                         )
                 else:
-                    #if self.current_epoch % Config.get("val_fid_calculation_period") == 0:
-                    if self.current_epoch % 15 == 0:
-                        meshes, sdfs = self.generate_meshes(x_0s, None, res=512)
-                        #for mesh in meshes:
-                            #mesh.vertices *= 2
-                            
+                    if self.current_epoch % Config.get("vis_calculation_period") == 0:
+                        meshes, sdfs = self.generate_meshes(x_0s, None, res=64)
                         if sdfs:
                             print(
                                 "sdfs.stats",
@@ -313,7 +344,7 @@ class HyperDiffusion(pl.LightningModule):
                         "generated_renders", imgs, step=self.current_epoch
                     )
 
-    def generate_meshes(self, x_0s, folder_name="meshes", info="0", res=64, level=0):
+    def generate_meshes(self, x_0s, folder_name="meshes", info="0", res=64, level=0.07):
         x_0s = x_0s.view(len(x_0s), -1)
         curr_weights = Config.get("curr_weights")
         x_0s = x_0s[:, :curr_weights]
@@ -323,7 +354,7 @@ class HyperDiffusion(pl.LightningModule):
             if "ginr_modulated" in self.method:
                 mlp = generate_mlp_from_weights(weights, self.mlp_kwargs, config=Config.config, template_ginr=self.template_ginr)
                 mlp.to(torch.device("cuda"))
-                mesh = mlp.overfit_one_shape(type='sdf')
+                mesh = mlp.overfit_one_shape(type='sdf', res=res)
                 mesh = trimesh.Trimesh(mesh[0]['vertices'], mesh[0]['faces'])
                 meshes.append(mesh)
                 continue
@@ -559,22 +590,36 @@ class HyperDiffusion(pl.LightningModule):
         test_batch_size = 100 if self.cfg.method == "hyper_3d" else self.cfg.batch_size
 
         for _ in tqdm(range(number_of_samples_to_generate // test_batch_size)):
-            sample_x_0s.append(
-                self.diff.ddim_sample_loop(
-                    self.model, (test_batch_size, *self.image_size[1:])
-                )
+            # burada listedeki her randoomdan samplellama icin denormalization yapmamiz lazim
+            x_0s = self.diff.ddim_sample_loop(
+                self.model,
+                (
+                    test_batch_size, *self.image_size[1:]
+                ),
             )
+            ## Denormalization
+            if self.cfg.normalize_input:
+                x_0s = (x_0s * self.data_std.cpu()) + self.data_mean.cpu()
+                    
+            sample_x_0s.append(x_0s)
+            
+            
 
         if number_of_samples_to_generate % test_batch_size != 0:
-            sample_x_0s.append(
-                self.diff.ddim_sample_loop(
-                    self.model,
-                    (
-                        number_of_samples_to_generate % test_batch_size,
-                        *self.image_size[1:],
-                    ),
-                )
+            x_0s = self.diff.ddim_sample_loop(
+                self.model,
+                (
+                    number_of_samples_to_generate % test_batch_size,
+                    *self.image_size[1:],
+                ),
             )
+            
+            ## Denormalization
+            if self.cfg.normalize_input:
+                x_0s = (x_0s * self.data_std.cpu()) + self.data_mean.cpu()
+                    
+            sample_x_0s.append(x_0s)
+            
 
         sample_x_0s = torch.vstack(sample_x_0s)
         torch.save(sample_x_0s, f"{orig_meshes_dir}/prev_sample_x_0s.pth")
@@ -680,7 +725,7 @@ class HyperDiffusion(pl.LightningModule):
             metrics = metric_fn("test")
             print("test", metrics)
             for metric_name in metrics:
-                self.log("test/" + metric_name, metrics[metric_name])
+                self.logger.log_metrics({"test/" + metric_name: metrics[metric_name]}, step=self.global_step)
 
         # If it's baseline voxel diffusion, then output some shapes and exit
         if self.method == "raw_3d":
@@ -734,7 +779,7 @@ class HyperDiffusion(pl.LightningModule):
                 )
             return
         # If it's HyperDiffusion, let's calculate some statistics on training dataset
-        elif self.method == "hyper_3d":
+        elif "hyper_3d" in self.method:
             x_0s = []
             for i, img in enumerate(self.train_dt):
                 x_0s.append(img[0])
@@ -836,3 +881,22 @@ class HyperDiffusion(pl.LightningModule):
             self.logger.log_image(
                 "generated_renders_pc", out_pc_imgs, step=self.current_epoch
             )
+            
+    def visualize_timestep_outputs(self):
+        sample_x_0s = []
+        indices = []
+        for i, sample in enumerate(self.diff.ddim_sample_loop_progressive(
+            self.model,
+            shape=(1, *self.image_size[1:])
+        )):
+            if (i+1) % 125 == 0:
+                x_0s = sample["sample"].cpu().float()
+                
+                ## Denormalization
+                if self.cfg.normalize_input:
+                    x_0s = (x_0s * self.data_std.cpu()) + self.data_mean.cpu()
+            
+                sample_x_0s.append(x_0s)
+                indices.append(i)
+        
+        return sample_x_0s, indices

@@ -96,9 +96,9 @@ def main(cfg: DictConfig):
     )
     if not cfg.mlp_config.params.move:
         # COMMENTED FOR DEBUG PURPOSSES
-        #train_object_names = set([str.split(".")[0] for str in train_object_names])
+        train_object_names = set([str.split(".")[0] for str in train_object_names])
         # SET TRAIN OBJECT NAMES MANUALLY FOR DEBUG PURPOSSES FOR SINGLE OBJECT
-        train_object_names = train_object_names.item().split(".")[0]
+        #train_object_names = train_object_names.item().split(".")[0]
     # Check if dataset folder already has train,test,val split; create otherwise.
     if method == "hyper_3d":
         mlps_folder_all = mlps_folder_train
@@ -210,14 +210,14 @@ def main(cfg: DictConfig):
         val_object_names = np.genfromtxt(
             os.path.join(dataset_path, "val_split.lst"), dtype="str"
         )
-        #val_object_names = set([str.split(".")[0] for str in val_object_names])
-        val_object_names = val_object_names.item().split(".")[0]
+        val_object_names = set([str.split(".")[0] for str in val_object_names])
+        #val_object_names = val_object_names.item().split(".")[0]
         
         test_object_names = np.genfromtxt(
             os.path.join(dataset_path, "test_split.lst"), dtype="str"
         )
-        #test_object_names = set([str.split(".")[0] for str in test_object_names])
-        test_object_names = test_object_names.item().split(".")[0]
+        test_object_names = set([str.split(".")[0] for str in test_object_names])
+        #test_object_names = test_object_names.item().split(".")[0]
         
         train_dt = ModulationDataset(
             mlps_folder_train,
@@ -270,6 +270,9 @@ def main(cfg: DictConfig):
             len(train_dt), len(val_dt), len(test_dt)
         )
     )
+
+        
+    
     input_data = next(iter(train_dl))[0]
     print(
         "Input data shape, min, max:",
@@ -285,6 +288,26 @@ def main(cfg: DictConfig):
     diffuser = HyperDiffusion(
         model, train_dt, val_dt, test_dt, mlp_kwargs, input_data.shape, method, cfg
     )
+    
+    if cfg.normalize_input:
+        # calculate train set mean and std for normalization
+        mean = 0.0
+        no_samples = 0
+        for i, batch_i in enumerate(train_dl):
+            # batch_i[0].shape = [batch_size, weights_dim]
+            batch_mean = batch_i[0].mean(dim=1).sum(dim=0)
+            mean += batch_mean
+            no_samples += batch_i[0].shape[0]
+        mean /= no_samples
+        print(no_samples, mean)
+        
+        std = 0.0
+        for i, batch_i in enumerate(train_dl):
+            batch_std = batch_i[0].std(dim=1).sum(dim=0)
+            std += batch_std
+        std /= no_samples
+        diffuser.data_mean = mean
+        diffuser.data_std = std
 
     # Specify where to save checkpoints
     checkpoint_path = join(
@@ -334,9 +357,9 @@ def main(cfg: DictConfig):
         log_every_n_steps=1
     )
 
-    if Config.get("mode") == "train":
+    #if Config.get("mode") == "train":
         # If model_resume_path is provided (i.e., not None), the training will continue from that checkpoint
-        trainer.fit(diffuser, train_dl, val_dl, ckpt_path=model_resume_path)
+    #    trainer.fit(diffuser, train_dl, val_dl, ckpt_path=model_resume_path)
 
     # best_model_save_path is the path to saved best model
     trainer.test(
