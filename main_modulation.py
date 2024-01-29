@@ -90,15 +90,16 @@ def main(cfg: DictConfig):
             **Config.config["unet_config"]["params"]
         ).float()
 
+
     dataset_path = os.path.join(Config.config["dataset_dir"], Config.config["dataset"])
     train_object_names = np.genfromtxt(
         os.path.join(dataset_path, "train_split.lst"), dtype="str"
     )
-    if not cfg.mlp_config.params.move:
-        # COMMENTED FOR DEBUG PURPOSSES
-        train_object_names = set([str.split(".")[0] for str in train_object_names])
-        # SET TRAIN OBJECT NAMES MANUALLY FOR DEBUG PURPOSSES FOR SINGLE OBJECT
-        #train_object_names = train_object_names.item().split(".")[0]
+    
+    train_object_names = set([str.split(".")[0] for str in train_object_names])
+    # SET TRAIN OBJECT NAMES MANUALLY FOR DEBUG PURPOSSES FOR SINGLE OBJECT
+    #train_object_names = train_object_names.item().split(".")[0]
+    
     # Check if dataset folder already has train,test,val split; create otherwise.
     if method == "hyper_3d":
         mlps_folder_all = mlps_folder_train
@@ -162,7 +163,6 @@ def main(cfg: DictConfig):
             os.path.join(dataset_path, "test_split.lst"), dtype="str"
         )
         test_object_names = set([str.split(".")[0] for str in test_object_names])
-        # assert len(train_object_names) == train_size, f"{len(train_object_names)} {train_size}"
 
         train_dt = WeightDataset(
             mlps_folder_train,
@@ -195,16 +195,6 @@ def main(cfg: DictConfig):
             mlp_kwargs,
             cfg,
             test_object_names,
-        )
-    elif method == "raw_3d":
-        dataset_path = os.path.join(
-            Config.config["dataset_dir"], Config.config["dataset"]
-        )
-        train_dt = VoxelDataset(
-            dataset_path, wandb_logger, model.dims, mlp_kwargs, cfg, train_object_names
-        )
-        train_dl = DataLoader(
-            train_dt, batch_size=Config.get("batch_size"), shuffle=True, num_workers=2
         )
     elif "ginr_modulated" in method:
         val_object_names = np.genfromtxt(
@@ -289,6 +279,7 @@ def main(cfg: DictConfig):
         model, train_dt, val_dt, test_dt, mlp_kwargs, input_data.shape, method, cfg
     )
     
+    # normalization
     if cfg.normalize_input:
         # calculate train set mean and std for normalization
         mean = 0.0
@@ -357,9 +348,9 @@ def main(cfg: DictConfig):
         log_every_n_steps=1
     )
 
-    #if Config.get("mode") == "train":
+    if Config.get("mode") == "train":
         # If model_resume_path is provided (i.e., not None), the training will continue from that checkpoint
-    #    trainer.fit(diffuser, train_dl, val_dl, ckpt_path=model_resume_path)
+        trainer.fit(diffuser, train_dl, val_dl, ckpt_path=model_resume_path)
 
     # best_model_save_path is the path to saved best model
     trainer.test(
