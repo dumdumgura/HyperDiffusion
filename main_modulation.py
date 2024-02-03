@@ -42,7 +42,7 @@ def main(cfg: DictConfig):
         mlp_kwargs = Config.config["mlp_config"]["params"]
 
     wandb.init(
-        project="hyperdiffusion_ginr_modulation",
+        project="hyperdiffusion_ginr_modulation_debug",
         dir=config["tensorboard_log_dir"],
         settings=wandb.Settings(_disable_stats=True, _disable_meta=True),
         tags=[Config.get("mode")],
@@ -329,6 +329,9 @@ def main(cfg: DictConfig):
     )
 
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="epoch")
+    
+    checkpoint_callback = ModelCheckpoint(dirpath='./save', save_last=True)
+    
     trainer = pl.Trainer(
         accelerator="gpu",
         devices=torch.cuda.device_count(),
@@ -341,16 +344,20 @@ def main(cfg: DictConfig):
             best_mmd_checkpoint,
             last_model_saver,
             lr_monitor,
+            checkpoint_callback
         ],
         check_val_every_n_epoch=Config.get("val_fid_calculation_period"),
         num_sanity_val_steps=0,
         accumulate_grad_batches=cfg.accumulate_grad_batches,
         log_every_n_steps=1
     )
+    
+    
 
     if Config.get("mode") == "train":
         # If model_resume_path is provided (i.e., not None), the training will continue from that checkpoint
         trainer.fit(diffuser, train_dl, val_dl, ckpt_path=model_resume_path)
+        pass
 
     # best_model_save_path is the path to saved best model
     trainer.test(

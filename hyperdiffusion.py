@@ -111,7 +111,7 @@ class HyperDiffusion(pl.LightningModule):
             if "ginr_modulated" in self.method:
                 mlp = generate_mlp_from_weights(img, self.mlp_kwargs, config=Config.config, template_ginr=self.template_ginr)
                 mlp.to(torch.device("cuda"))
-                mesh = mlp.overfit_one_shape(type='sdf')
+                mesh = mlp.overfit_one_shape(type='sdf', level=0)
                 reconstruct_shape(meshes=mesh, epoch=-1, mode="first_mesh_hyperdiffusion")
                 mesh = trimesh.Trimesh(mesh[0]['vertices'], mesh[0]['faces'])
                 out_imgs = render_meshes([mesh])
@@ -207,7 +207,7 @@ class HyperDiffusion(pl.LightningModule):
 
         # Handle 3D sample generation
         if "hyper" in self.method:
-            if self.current_epoch % 1 == 0:
+            if self.current_epoch % Config.get("vis_calculation_period") == 0:
                 
                 x_0s = (
                     self.diff.ddim_sample_loop(self.model, (self.cfg.num_of_generations, *self.image_size[1:]))
@@ -229,22 +229,22 @@ class HyperDiffusion(pl.LightningModule):
                     x_0s.var().item()
                 )
                 
-                if self.current_epoch % Config.get("vis_calculation_period") == 0:
-                    meshes, sdfs = self.generate_meshes(x_0s, None, res=64)
-                    if sdfs:
-                        print(
-                            "sdfs.stats",
-                            sdfs.min().item(),
-                            sdfs.max().item(),
-                            sdfs.mean().item(),
-                            sdfs.std().item(),
-                        )
-                    out_imgs = render_meshes(meshes)
-                    self.logger.log_image(
-                        "generated_renders", out_imgs, step=self.current_epoch
+                meshes, sdfs = self.generate_meshes(x_0s, None, res=256, level=0)
+                if sdfs:
+                    print(
+                        "sdfs.stats",
+                        sdfs.min().item(),
+                        sdfs.max().item(),
+                        sdfs.mean().item(),
+                        sdfs.std().item(),
                     )
+                out_imgs = render_meshes(meshes)
+                self.logger.log_image(
+                    "generated_renders", out_imgs, step=self.current_epoch,   caption= \
+                        list(map(add, [f"epoch="+str(self.current_epoch)]*self.cfg.num_of_generations, map(add, [" sample="]*self.cfg.num_of_generations, map(str, range(self.cfg.num_of_generations)))))
+                )
 
-    def generate_meshes(self, x_0s, folder_name="meshes", info="0", res=64, level=0.07):
+    def generate_meshes(self, x_0s, folder_name="meshes", info="0", res=256, level=0.07):
         x_0s = x_0s.view(len(x_0s), -1)
         curr_weights = Config.get("curr_weights")
         x_0s = x_0s[:, :curr_weights]
@@ -254,7 +254,7 @@ class HyperDiffusion(pl.LightningModule):
             if "ginr_modulated" in self.method:
                 mlp = generate_mlp_from_weights(weights, self.mlp_kwargs, config=Config.config, template_ginr=self.template_ginr)
                 mlp.to(torch.device("cuda"))
-                mesh = mlp.overfit_one_shape(type='sdf', res=res)
+                mesh = mlp.overfit_one_shape(type='sdf', res=res, level=level)
                 mesh = trimesh.Trimesh(mesh[0]['vertices'], mesh[0]['faces'])
                 meshes.append(mesh)
                 continue
@@ -368,7 +368,7 @@ class HyperDiffusion(pl.LightningModule):
 
         # Then process generated shapes
         sample_x_0s = []
-        test_batch_size = 100 if self.cfg.method == "hyper_3d" else self.cfg.batch_size
+        test_batch_size = 100 if "hyper_3d" in self.cfg.method else self.cfg.batch_size
 
         for _ in tqdm(range(number_of_samples_to_generate // test_batch_size)):
             # burada listedeki her randoomdan samplellama icin denormalization yapmamiz lazim
@@ -432,8 +432,8 @@ class HyperDiffusion(pl.LightningModule):
                 mesh, _ = self.generate_meshes(
                     x_0s.unsqueeze(0) / self.cfg.normalization_factor,
                     None,
-                    res=356 if split_type == "test" else 256,
-                    level=1.386 if split_type == "test" else 0,
+                    res=64 if split_type == "test" else 256,
+                    #level=1.386 if split_type == "test" else 0,
                 )
                 mesh = mesh[0]
             else:
@@ -538,6 +538,12 @@ class HyperDiffusion(pl.LightningModule):
             x_0s = self.diff.ddim_sample_loop(
                 self.model, (16, *self.image_size[1:]), clip_denoised=False
             )
+            
+            ## Denormalization
+            if self.cfg.normalize_input:
+                print("self.data_mean: ", self.data_mean, "\tself.data_std:", self.data_std)
+                x_0s = (x_0s * self.data_std.cpu()) + self.data_mean.cpu()
+            
             x_0s = x_0s / self.cfg.normalization_factor
 
             print(
@@ -547,40 +553,22 @@ class HyperDiffusion(pl.LightningModule):
                 x_0s.mean().item(),
                 x_0s.std().item(),
             )
-            out_pc_imgs = []
+            #out_pc_imgs = []
 
             # Handle 3D generation
             out_imgs = []
-            os.makedirs(f"gen_meshes/{wandb.run.name}")
-            for x_0 in tqdm(x_0s):
-                mesh, _ = self.generate_meshes(x_0.unsqueeze(0), None, res=256)
-                mesh = mesh[0]
-                if len(mesh.vertices) == 0:
-                    continue
-                mesh.vertices *= 2
-                mesh.export(f"gen_meshes/{wandb.run.name}/mesh_{len(out_imgs)}.obj")
-
-                # Scaling the chairs down so that they fit in the camera
-                if self.cfg.dataset == "03001627":
-                    mesh.vertices *= 0.7
-                img, _ = render_mesh(mesh)
-
-                if len(mesh.vertices) > 0:
-                    pc = torch.tensor(mesh.sample(2048))
-                else:
-                    print("Empty mesh")
-                    pc = torch.zeros(2048, 3)
-                pc_img, _ = render_mesh(pc)
-                out_imgs.append(img)
-                out_pc_imgs.append(pc_img)
+                
+            meshes, _ = self.generate_meshes(x_0s)
+            out_imgs = render_meshes(meshes)
 
             self.logger.log_image(
                 "generated_renders_test", out_imgs, step=self.current_epoch
             )
-            self.logger.log_image(
-                "generated_renders_pc_test", out_pc_imgs, step=self.current_epoch
-            )
-            
+            #self.logger.log_image(
+            #    "generated_renders_pc_test", out_pc_imgs, step=self.current_epoch
+            #)
+        
+        
     def visualize_timestep_outputs(self):
         sample_x_0s = []
         indices = []
