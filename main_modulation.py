@@ -340,11 +340,11 @@ def main(cfg: DictConfig):
         logger=wandb_logger,
         default_root_dir=checkpoint_path,
         callbacks=[
-            best_acc_checkpoint,
-            best_mmd_checkpoint,
-            last_model_saver,
+            #best_acc_checkpoint,
+            #best_mmd_checkpoint,
+            #last_model_saver,
             lr_monitor,
-            checkpoint_callback
+            #checkpoint_callback
         ],
         check_val_every_n_epoch=Config.get("val_fid_calculation_period"),
         num_sanity_val_steps=0,
