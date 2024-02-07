@@ -20,6 +20,11 @@ def main(cfg: DictConfig):
     Config.config = config = cfg
     method = Config.get("method")
     mlp_kwargs = None
+    
+    # Extract parameters from the command line or use default values
+    level = cfg.get("level", 0)  # Default level
+    checkpoint_path = cfg.get("checkpoint_path", "./save/epoch=3999-step=3999.ckpt")  # Default checkpoint path
+    save_path = cfg.get("save_path", "./")  # Default path to save OBJ files
 
     # In HyperDiffusion, we need to know the specifications of MLPs that are used for overfitting
     if "hyper" in method:
@@ -87,7 +92,7 @@ def main(cfg: DictConfig):
         method=method,
         cfg=cfg
     )
-    checkpoint = torch.load("./save/epoch=3999-step=3999.ckpt")
+    checkpoint = torch.load(checkpoint_path)
     diffuser.load_state_dict(checkpoint["state_dict"])
     
     # normalization
@@ -112,9 +117,9 @@ def main(cfg: DictConfig):
         diffuser.data_std = std
     
     level = cfg.get("level", 0)
-    generate(diffuser=diffuser, level=level)
+    generate(diffuser=diffuser, level=level, save_path=save_path)
     
-def generate(diffuser : HyperDiffusion, level = 0):
+def generate(diffuser : HyperDiffusion, level = 0, save_path="./"):
     p_out = diffuser.diff.p_sample_loop(
                 diffuser.model,
                 shape=(5, *diffuser.image_size[1:])
@@ -134,12 +139,12 @@ def generate(diffuser : HyperDiffusion, level = 0):
     
     for index, mesh in enumerate(meshes_p_out):
         mesh = mesh.export(file_type='obj')
-        with open(f'p_out_{index}_{level}.obj', 'w') as file:
+        with open(os.path.join(save_path, f'p_out_{index}.obj'), 'w') as file:
             file.write(mesh)
         
     for index, mesh in enumerate(meshes_ddim_out):
         mesh = mesh.export(file_type='obj')
-        with open(f'ddim_{index}_{level}.obj', 'w') as file:
+        with open(os.path.join(save_path, f'ddim_{index}.obj'), 'w') as file:
             file.write(mesh)
     
 if __name__ == "__main__":
