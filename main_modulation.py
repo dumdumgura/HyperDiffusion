@@ -253,7 +253,7 @@ def main(cfg: DictConfig):
     )
     test_dl = DataLoader(
         torch.utils.data.Subset(train_dt, [0]), batch_size=1, shuffle=False
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          )
+    )
 
     print(
         "Train dataset length: {} Val dataset length: {} Test dataset length {}".format(
