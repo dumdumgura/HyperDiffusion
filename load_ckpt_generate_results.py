@@ -139,12 +139,12 @@ def generate(diffuser : HyperDiffusion, level = 0, save_path="./"):
     
     for index, mesh in enumerate(meshes_p_out):
         mesh = mesh.export(file_type='obj')
-        with open(os.path.join(save_path, f'p_out_{index}.obj'), 'w') as file:
+        with open(os.path.join(save_path, f'p_out_{index}_{level}.obj'), 'w') as file:
             file.write(mesh)
         
     for index, mesh in enumerate(meshes_ddim_out):
         mesh = mesh.export(file_type='obj')
-        with open(os.path.join(save_path, f'ddim_{index}.obj'), 'w') as file:
+        with open(os.path.join(save_path, f'ddim_{index}_{level}.obj'), 'w') as file:
             file.write(mesh)
     
 if __name__ == "__main__":
