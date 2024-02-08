@@ -6,7 +6,8 @@ filter_bad: false
 filter_bad_path: ./data/plane_problematic_shapes.txt
 disable_wandb: False
 dataset_dir: ./data/sdf/171shape_occ_sdf/
-dataset: obj_single
+#dataset: obj_single
+dataset: obj
 tensorboard_log_dir: .
 augment: False
 augment_amount: 0
@@ -14,16 +15,17 @@ jitter_augment: False
 normalization_factor: 1
 num_of_generations: 1
 timesteps: 500
-epochs: 60000
+epochs: 4000
 scheduler: True
 scheduler_step: 200
 best_model_save_path:
 mode: train
-mlps_folder_train: ./mlp_weights/ginr_simplified_overfit_relu/
+mlps_folder_train: ./mlp_weights/ginr_simplified_overfit_relu/relu_results
 mlps_type: "ginr"
 model_resume_path:
 sampling: ddim
-val_fid_calculation_period: 20000
+val_fid_calculation_period: 500 # 250
+vis_calculation_period: 250 # 100
 lr: 0.0002
 batch_size: 32
 accumulate_grad_batches: 1
