@@ -188,8 +188,7 @@ class HyperDiffusion(pl.LightningModule):
             self.logger.log_metrics({"val/" + metric_name: metrics[metric_name]}, step=self.global_step)
             
         if self.cfg.vis_intermediate_timesteps:
-            sample_x_0s, indices = self.visualize_timestep_outputs()
-            
+            sample_x_0s, indices = self.visualize_reverse_timestep_outputs()
             sample_x_0s = torch.vstack(sample_x_0s)
             meshes, _ = self.generate_meshes(sample_x_0s)
             out_imgs = render_meshes(meshes)
@@ -200,6 +199,16 @@ class HyperDiffusion(pl.LightningModule):
                 caption=list(map(add, ["t="]*len(indices), map(str, indices)))
             )
             
+            sample_x_ts_forward, indices_forward = self.visualize_forward_timestep_outputs(val_batch)
+            sample_x_ts_forward = torch.vstack(sample_x_ts_forward)
+            meshes, _ = self.generate_meshes(sample_x_ts_forward)
+            out_imgs = render_meshes(meshes)
+            self.logger.log_image(
+                "intermediate_forward_timestep_renders",
+                out_imgs,
+                step=self.current_epoch,
+                caption=list(map(add, ["t="]*len(indices_forward), map(str, indices_forward)))
+            )
 
     def training_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
         epoch_loss = sum(output["loss"] for output in outputs) / len(outputs)
@@ -568,8 +577,32 @@ class HyperDiffusion(pl.LightningModule):
             #    "generated_renders_pc_test", out_pc_imgs, step=self.current_epoch
             #)
         
-        
-    def visualize_timestep_outputs(self):
+    def visualize_forward_timestep_outputs(self, batch):
+        '''
+        x_start: the [N x C x ...] tensor of inputs.
+        '''
+        timestep_limit = self.diff.num_timesteps
+        x_start = batch[0]
+        noised_x_ts = []
+        indices = []
+        # Iterate through numbers from 1 to upper_limit
+        for i in range(timestep_limit):
+            # Check if num is divisible by N
+            if (i+1) % 125 == 0 or i == 0:
+                x_ts = self.diff.q_sample(x_start=x_start , noise=None, t=torch.tensor(i).long().to(self.device))[0]
+                
+                if self.cfg.normalize_input:
+                    x_ts = (x_ts * self.data_std.cpu()) + self.data_mean.cpu()
+                    
+                # Add num to the list
+                noised_x_ts.append(x_ts)
+                indices.append(i)
+                
+        return noised_x_ts, indices
+            
+
+       
+    def visualize_reverse_timestep_outputs(self):
         sample_x_0s = []
         indices = []
         for i, sample in enumerate(self.diff.ddim_sample_loop_progressive(

@@ -30,7 +30,7 @@ sys.path.append("siren")
 @hydra.main(
     version_base=None,
     config_path="configs/diffusion_configs",
-    config_name="train_plane_ginr_simplified",
+    config_name="train_plane_ginr_simplified_relu",
 )
 def main(cfg: DictConfig):
     Config.config = config = cfg

@@ -272,7 +272,7 @@ def compute_all_metrics_4d(sample_pcs, ref_pcs, batch_size, logger):
     return results
 
 
-def compute_all_metrics(sample_pcs, ref_pcs, batch_size, logger):
+def compute_all_metrics(sample_pcs, ref_pcs, batch_size, logger=None):
     results = {}
 
     print("Pairwise EMD CD")

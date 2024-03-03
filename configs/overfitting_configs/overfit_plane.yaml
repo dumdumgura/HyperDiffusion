@@ -3,7 +3,7 @@ output_type: "occ" # or sdf or occ
 in_out: True
 augment_on_the_fly: False
 mesh_jitter: False
-dataset_folder: "./data/02691156_small_obj_manifold"
+dataset_folder: "./data/final/02691156_ten_obj_manifold"
 wandb_dir: .
 batch_size: 2048
 lr: 1e-2
@@ -32,7 +32,7 @@ multi_process:
   n_of_parts: 4
   first_weights_name:
   ignore_first: False
-n_points: 100000
+n_points: 2048 # 100000
 is_meta: True
 strategy: first_weights
 clip_grad: False

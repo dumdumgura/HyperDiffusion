@@ -27,7 +27,7 @@ fid = FrechetInceptionDistance(reset_real_features=True)
 def calculate_fid_3d(
     sample_pcs,
     ref_pcs,
-    wandb_logger,
+    wandb_logger = None,
     path="Pointnet_Pointnet2_pytorch/log/classification/pointnet2_ssg_wo_normals/checkpoints/best_model.pth",
 ):
     batch_size = 10

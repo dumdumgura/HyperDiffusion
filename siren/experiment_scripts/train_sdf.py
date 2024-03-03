@@ -89,7 +89,9 @@ def main(cfg: DictConfig):
     train_object_names = np.genfromtxt(
         os.path.join(cfg.dataset_folder, "train_split.lst"), dtype="str"
     )
-    train_object_names = set(train_object_names)
+    #train_object_names = set(train_object_names)
+    # SET TRAIN OBJECT NAMES MANUALLY FOR DEBUG PURPOSSES FOR SINGLE OBJECT
+    train_object_names = train_object_names.item().split(".")[0]
     for i, file in enumerate(files):
         # We used to have mesh jittering for augmentation but not using it anymore
         for j in range(10 if mesh_jitter and i > 0 else 1):
@@ -141,6 +143,23 @@ def main(cfg: DictConfig):
             checkpoint_path = os.path.join(root_path, f"{filename}_model_final.pth")
             if os.path.exists(checkpoint_path):
                 print("Checkpoint exists:", checkpoint_path)
+                sdf_decoder = SDFDecoder(
+                    cfg.model_type,
+                    checkpoint_path,
+                    "nerf" if cfg.model_type == "nerf" else "mlp",
+                    cfg,
+                )
+                os.makedirs(
+                    os.path.join("./final/ten_overfit", f"{cfg.exp_name}_ply"), exist_ok=True
+                )
+                sdf_meshing.create_mesh(
+                    sdf_decoder,
+                    os.path.join("./final/ten_overfit", f"{cfg.exp_name}_ply", filename),
+                    N=256,
+                    level=0
+                    if cfg.output_type == "occ" and cfg.out_act == "sigmoid"
+                    else 0,
+                )
                 continue
             if cfg.strategy == "remove_bad":
                 model.load_state_dict(torch.load(checkpoint_path))

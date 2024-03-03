@@ -11,6 +11,7 @@ dataset_dir: ./data/sdf/171shape_occ_sdf/
 #dataset: obj_single
 #dataset: obj_two
 dataset: obj_ten
+#dataset: obj
 #dataset: obj_five
 normalize_input: True
 tensorboard_log_dir: .

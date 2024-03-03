@@ -8,6 +8,7 @@ disable_wandb: False
 dataset_dir: ./data/sdf/171shape_occ_sdf/
 #dataset: obj_single
 dataset: obj
+normalize_input: False
 tensorboard_log_dir: .
 augment: False
 augment_amount: 0
@@ -24,8 +25,9 @@ mlps_folder_train: ./mlp_weights/ginr_simplified_overfit_relu/relu_results
 mlps_type: "ginr"
 model_resume_path:
 sampling: ddim
-val_fid_calculation_period: 500 # 250
-vis_calculation_period: 250 # 100
+val_fid_calculation_period:  500 # 250
+vis_calculation_period:  250 # 100
+vis_intermediate_timesteps: True
 lr: 0.0002
 batch_size: 32
 accumulate_grad_batches: 1
